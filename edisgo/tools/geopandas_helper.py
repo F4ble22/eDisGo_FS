@@ -1,0 +1,251 @@
+# This file is part of eDisGo (Electrical Distribution Grid Optimization),
+# a Python package for analyzing flexibility options in distribution grids.
+#
+# Copyright (c) Reiner Lemoine Institut gGmbH
+# Contributors are listed in the version control history:
+# https://github.com/openego/eDisGo/
+#
+# Documentation: https://edisgo.readthedocs.io/
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+from __future__ import annotations
+
+import os
+
+from typing import TYPE_CHECKING
+
+if "READTHEDOCS" not in os.environ:
+    import geopandas as gpd
+
+    from shapely.geometry import LineString
+
+if TYPE_CHECKING:
+    from edisgo.network.grids import Grid
+    from edisgo.network.topology import Topology
+
+COMPONENTS: list[str] = [
+    "generators_df",
+    "loads_df",
+    "storage_units_df",
+    "transformers_df",
+]
+
+
+class GeoPandasGridContainer:
+    """
+    Grids geo data for all components with information about their geolocation.
+
+    Parameters
+    ----------
+    crs : str
+        Coordinate Reference System of the geometry objects.
+    id : str or int
+        Grid identifier
+    grid : :class:`~.network.grids.Grid`
+        Matching grid object
+    buses_gdf : :geopandas:`GeoDataFrame`
+        GeoDataframe with all buses in the Grid. See
+        :attr:`~.network.topology.Topology.buses_df` for more information.
+    generators_gdf : :geopandas:`GeoDataFrame`
+        GeoDataframe with all generators in the Grid. See
+        :attr:`~.network.topology.Topology.generators_df` for more information.
+    loads_gdf : :geopandas:`GeoDataFrame`
+        GeoDataframe with all loads in the Grid. See
+        :attr:`~.network.topology.Topology.loads_df` for more information.
+    storage_units_gdf : :geopandas:`GeoDataFrame`
+        GeoDataframe with all storage units in the Grid. See
+        :attr:`~.network.topology.Topology.storage_units_df` for more information.
+    transformers_gdf : :geopandas:`GeoDataFrame`
+        GeoDataframe with all transformers in the Grid. See
+        :attr:`~.network.topology.Topology.transformers_df` for more information.
+    lines_gdf : :geopandas:`GeoDataFrame`
+        GeoDataframe with all lines in the Grid. See
+        :attr:`~.network.topology.Topology.loads_df` for more information.
+    """
+
+    def __init__(
+        self,
+        crs: str,
+        grid_id: str | int,
+        grid: Grid,
+        buses_gdf: gpd.GeoDataFrame,
+        generators_gdf: gpd.GeoDataFrame,
+        loads_gdf: gpd.GeoDataFrame,
+        storage_units_gdf: gpd.GeoDataFrame,
+        transformers_gdf: gpd.GeoDataFrame,
+        lines_gdf: gpd.GeoDataFrame,
+    ):
+        self.crs = crs
+        self.grid_id = grid_id
+        self.grid = grid
+        self.buses_gdf = buses_gdf
+        self.generators_gdf = generators_gdf
+        self.loads_gdf = loads_gdf
+        self.storage_units_gdf = storage_units_gdf
+        self.transformers_gdf = transformers_gdf
+        self.lines_gdf = lines_gdf
+
+        @property
+        def crs(self):
+            """The crs property."""
+            return self._crs
+
+        @crs.setter
+        def crs(self, crs_str):
+            self._crs = crs_str
+
+        @property
+        def grid_id(self):
+            """The grid_id property."""
+            return self._grid_id
+
+        @grid_id.setter
+        def grid_id(self, grid_id_val):
+            self._grid_id = grid_id_val
+
+        @property
+        def grid(self):
+            """The grid property."""
+            return self.grid
+
+        @grid.setter
+        def grid(self, grid_obj):
+            self.grid = grid_obj
+
+        @property
+        def buses_gdf(self):
+            """The buses_gdf property."""
+            return self._buses_gdf
+
+        @buses_gdf.setter
+        def buses_gdf(self, gdf):
+            self._buses_gdf = gdf
+
+        @property
+        def generators_gdf(self):
+            """The generators_gdf property."""
+            return self._generators_gdf
+
+        @generators_gdf.setter
+        def generators_gdf(self, gdf):
+            self._generators_gdf = gdf
+
+        @property
+        def loads_gdf(self):
+            """The loads_gdf property."""
+            return self._loads_gdf
+
+        @loads_gdf.setter
+        def loads_gdf(self, gdf):
+            self._loads_gdf = gdf
+
+        @property
+        def storage_units_gdf(self):
+            """The storage_units_gdf property."""
+            return self._storage_units_gdf
+
+        @storage_units_gdf.setter
+        def storage_units_gdf(self, gdf):
+            self._storage_units_gdf = gdf
+
+        @property
+        def transformers_gdf(self):
+            """The transformers_gdf property."""
+            return self._transformers_gdf
+
+        @transformers_gdf.setter
+        def transformers_gdf(self, gdf):
+            self._transformers_gdf = gdf
+
+        @property
+        def lines_gdf(self):
+            """The lines_gdf property."""
+            return self._lines_gdf
+
+        @lines_gdf.setter
+        def lines_gdf(self, gdf):
+            self._lines_gdf = gdf
+
+        def plot(self):
+            """
+            Plot the grid container.
+
+            .. note:: Not yet implemented; currently raises
+                :class:`NotImplementedError`.
+            """
+            raise NotImplementedError
+
+
+def to_geopandas(grid_obj: Grid | Topology, srid: int) -> GeoPandasGridContainer:
+    """
+    Translates all DataFrames with geolocations within a grid topology to GeoDataFrames.
+
+    Parameters
+    ----------
+    grid_obj : :class:`~.network.grids.Grid` or :class:`~.network.topology.Topology`
+        Grid or Topology object to transform.
+    srid : int
+        SRID (spatial reference ID) of x and y coordinates of buses. Usually given in
+        Topology.grid_district["srid"].
+
+    Returns
+    -------
+    :class:`.GeoPandasGridContainer`
+        Data container with the grids geo data for all components with information about
+        their geolocation.
+
+    """
+    # convert buses_df
+    buses_df = grid_obj.buses_df
+    buses_df = buses_df.assign(
+        geometry=gpd.points_from_xy(buses_df.x, buses_df.y, crs=f"EPSG:{srid}")
+    ).drop(columns=["x", "y"])
+
+    buses_gdf = gpd.GeoDataFrame(buses_df, crs=f"EPSG:{srid}")
+
+    # convert component DataFrames
+    components_dict = {}
+
+    for component in COMPONENTS:
+        left_on = "bus1" if component == "transformers_df" else "bus"
+
+        attr = getattr(grid_obj, component)
+
+        components_dict[component.replace("_df", "_gdf")] = gpd.GeoDataFrame(
+            attr.merge(
+                buses_gdf[["geometry", "v_nom"]], left_on=left_on, right_index=True
+            ),
+            crs=f"EPSG:{srid}",
+        )
+        if components_dict[component.replace("_df", "_gdf")].empty:
+            components_dict[component.replace("_df", "_gdf")].index = attr.index
+
+    # convert lines_df
+    lines_df = grid_obj.lines_df
+
+    lines_gdf = lines_df.merge(
+        buses_gdf[["geometry", "v_nom"]].rename(columns={"geometry": "geom_0"}),
+        left_on="bus0",
+        right_index=True,
+    )
+    lines_gdf = lines_gdf.merge(
+        buses_gdf[["geometry"]].rename(columns={"geometry": "geom_1"}),
+        left_on="bus1",
+        right_index=True,
+    )
+    lines_gdf["geometry"] = lines_gdf.apply(
+        lambda _: LineString([_["geom_0"], _["geom_1"]]), axis=1
+    )
+    lines_gdf = gpd.GeoDataFrame(
+        lines_gdf.drop(columns=["geom_0", "geom_1"]), crs=f"EPSG:{srid}"
+    )
+
+    return GeoPandasGridContainer(
+        crs=f"EPSG:{srid}",
+        grid_id=grid_obj.id,
+        grid=grid_obj,
+        buses_gdf=buses_gdf,
+        lines_gdf=lines_gdf,
+        **components_dict,
+    )
