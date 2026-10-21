@@ -244,7 +244,7 @@ for mvgd in [30992]:
                     str(mvgd) + "_feed-in_case",
                 )
             ):
-                edisgo_feed = edisgo_year.copy()
+                edisgo_feed = edisgo_year
                 edisgo_feed = setup_powerflow(edisgo_feed, "fc")
                 edisgo_feed = compute_reinforcement(edisgo_feed)
                 save_grid(
