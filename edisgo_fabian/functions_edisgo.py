@@ -228,6 +228,8 @@ def analyse_topology(edisgo):
     # aus Namen extrahieren, ob MV oder LV angeschlossen ist
     # generator, load und storage für Gesamt Netz holen
     gen_ges = edisgo.topology.generators_df.copy()
+
+    gen_ges = gen_ges[gen_ges["type"] != "solar"]
     load_ges = edisgo.topology.loads_df.copy()
     storage_ges = edisgo.topology.storage_units_df.copy()
     mv_grid = edisgo.topology.mv_grid
@@ -235,6 +237,7 @@ def analyse_topology(edisgo):
     lv_grid_gen = lv_generators(
         list_lv, lv_grid_gen
     )  # generator object hat kein Zugriff über generators_df. Über get_lv_grid('name') machbar.
+    lv_grid_gen = lv_grid_gen[lv_grid_gen["type"] != "solar"]
     lv_grid_load = lv_loads(list_lv, lv_grid_load)
     lv_grid_storage = lv_storage(list_lv, lv_grid_storage)
 
@@ -245,6 +248,8 @@ def analyse_topology(edisgo):
         cap_by_type_lv = lv_grid_gen.groupby(["type"])["p_nom"].sum()
         # type mv
         cap_by_type_mv = mv_grid.generators_df.groupby(["type"])["p_nom"].sum()
+        # solar aus mv entfernen, da Aufgetrennt in pv_rooftop und pv_open_space
+        cap_by_type_mv = cap_by_type_mv.drop("solar")
 
         for k, v in cap_by_type_total.items():
             values_list[f"gen_cap_by_type_total.{k}"] = float(v)
