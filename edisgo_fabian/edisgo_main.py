@@ -2,6 +2,8 @@ import logging
 import os
 import traceback
 
+from copy import deepcopy
+
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -167,7 +169,7 @@ for mvgd in [30992]:
     # ---- adapt nodes and reinforce grid ----
     try:
         # Create copy of 2021 topology
-        edisgo_year = edisgo_ist
+        edisgo_year = deepcopy(edisgo_ist)
         for year in range(2022, 2036):
             logging.info(f"Generating scenario for year {year} and mv_district {mvgd}")
             if os.path.exists(
@@ -214,7 +216,7 @@ for mvgd in [30992]:
                     path_save_topology, "reinforce", str(year), str(mvgd) + "_load_case"
                 )
             ):
-                edisgo_load = edisgo_year
+                edisgo_load = deepcopy(edisgo_year)
 
                 # Setup powerflow for load case (Schritt 5 & 6)
                 edisgo_load = setup_powerflow(edisgo_load, "lc")
@@ -244,7 +246,7 @@ for mvgd in [30992]:
                     str(mvgd) + "_feed-in_case",
                 )
             ):
-                edisgo_feed = edisgo_year
+                edisgo_feed = deepcopy(edisgo_year)
                 edisgo_feed = setup_powerflow(edisgo_feed, "fc")
                 edisgo_feed = compute_reinforcement(edisgo_feed)
                 save_grid(
@@ -261,6 +263,7 @@ for mvgd in [30992]:
             if not os.path.exists(
                 os.path.join(path_save_topology, "reinforce", str(year), str(mvgd))
             ):
+                edisgo_year = deepcopy(edisgo_year)
                 edisgo_year = setup_powerflow(edisgo_year, "wc")
                 edisgo_year = compute_reinforcement(edisgo_year)
                 save_grid(
