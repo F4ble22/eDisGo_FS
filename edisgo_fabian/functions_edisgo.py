@@ -1477,9 +1477,9 @@ def compute_reinforcement(edisgo):
     # mode: reinforce MV and LV network levels
     # Cost for lines connecting new generators are considered in reinforcement costs
     edisgo = fixing_object(edisgo)
-    edisgo.reinforce(mode="mv", catch_convergence_problems=True)
-    edisgo.reinforce(mode="mvlv", catch_convergence_problems=True)
     edisgo.reinforce(mode="lv", catch_convergence_problems=True)
+    edisgo.reinforce(mode="mvlv", catch_convergence_problems=True)
+    edisgo.reinforce(mode="mv", catch_convergence_problems=True)
 
     return edisgo
 
