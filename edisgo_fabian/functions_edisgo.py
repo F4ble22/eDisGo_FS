@@ -1,30 +1,24 @@
+# This file is part of eDisGo (Electrical Distribution Grid Optimization),
+# a Python package for analyzing flexibility options in distribution grids.
+#
+# Copyright (c) Reiner Lemoine Institut gGmbH
+# Contributors are listed in the version control history:
+# https://github.com/openego/eDisGo/
+#
+# Documentation: https://edisgo.readthedocs.io/
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
 # import openpyxl
 import logging
-import os
 
-from copy import deepcopy
-from itertools import combinations
-from pathlib import Path
 
-import geopandas as gpd
-import networkx as nx
 import numpy as np
 import pandas as pd
 
 from helpers import (
-    best_single_match,
-    greedy_closest_subset,
     plot_bar,
     select_best_match,
 )
-from shapely import wkt
-from sklearn.cluster import KMeans
-from sklearn.metrics import (
-    calinski_harabasz_score,
-    davies_bouldin_score,
-    silhouette_score,
-)
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 # from eDisGo_git.eDisGo.edisgo import edisgo
 from edisgo.tools.logger import setup_logger
@@ -446,7 +440,6 @@ def calculate_yearly_features(
 
             # 2. Prüfen, ob Feature mit Typ-Suffix (z. B. "gen_cap_by_type_lv.solar")
             #    oder OHNE Typ-Suffix (z. B. "pv_rooftop_lv")
-            sample_col = ist_cols[0] if ist_cols else scen_cols[0]
             feature_prefix = feature + "."
 
             # Prüfe, ob die Spalten das Format "ist_{feature}.{type}" haben
@@ -578,7 +571,7 @@ def ensure_bus_exists(edisgo, edisgo_2035, bus_name: str):
                 f"Bus {bus_name} kann mit existierendem Bus {other_bus} über Line {line_index} verbunden werden."
             )
             break  # bus kann verbunden werden, weil mindestens eine line zu einem existierenden bus führt
-    if can_connect == False:
+    if not can_connect:
         logging.info(
             f"Bus {bus_name} kann nicht angelegt werden, da keine der im 2035 Netz am Bus hängenden Leitungen zu einem existierenden Bus führt."
         )
@@ -630,6 +623,16 @@ def add_component(edisgo, edisgo_2035, index, row, component):
     """
 
     bus_name = row["bus"]
+    df_by_component = {
+        "generator": edisgo.topology.generators_df,
+        "load": edisgo.topology.loads_df,
+        "storage": edisgo.topology.storage_units_df,
+    }
+    if index in df_by_component[component].index:
+        logging.warning(
+            f"{component} {index} existiert bereits in der Topologie und wird nicht erneut angelegt."
+        )
+        return edisgo, 0
     check = ensure_bus_exists(edisgo, edisgo_2035, bus_name)
     if check == 0:
         return edisgo, 0
@@ -1056,12 +1059,12 @@ def adapt_components_topology(
     """
     # Filter generators to match target features
     # target_value ist die Änderung der Kapazität zum Vorjahr, target_abs ist die absolute Zielkapazität
+    # used_indices wird über alle Features hinweg geführt, damit eine Komponente
+    # nicht für mehrere Features (z.B. LV- und MV-Feature desselben Typs) doppelt gebaut wird
+    used_indices = set()
     for feature, target_value in target_features.items():
         current_capacity = get_current_capacity(edisgo, feature)
         target_abs = target_features_abs[feature]
-        used_indices = (
-            set()
-        )  # um zu vermeiden, dass gleiche Komponente mehrfach ausgewählt wird
         tolerance = 0.05 * target_abs  # 5% Toleranz
 
         if target_value == 0:
@@ -1079,6 +1082,14 @@ def adapt_components_topology(
                 if "type" in source_df.columns
                 else source_df
             )
+            # Kandidaten auf die Spannungsebene des Features beschränken,
+            # passend zu get_current_capacity (LV: Bus mit lv_grid_id, MV: Bus ohne)
+            if "_lv" in feature or "_mv" in feature:
+                src_buses = edisgo_2035.topology.buses_df
+                lv_bus_ids = set(src_buses.index[src_buses["lv_grid_id"].notna()])
+                mask_lv = df_candidates["bus"].isin(lv_bus_ids)
+                df_candidates = df_candidates[mask_lv if "_lv" in feature else ~mask_lv]
+            df_candidates = df_candidates[~df_candidates.index.isin(used_indices)]
             remaining_candidates = df_candidates.copy()
             logging.info(
                 f"Possible generators of type {type_name}: {len(df_candidates)}"
@@ -1136,13 +1147,10 @@ def adapt_components_topology(
             match component:
                 case "generator":
                     df_all = edisgo.topology.generators_df
-                    value_col = "p_nom"
                 case "load":
                     df_all = edisgo.topology.loads_df
-                    value_col = "p_set"
                 case "storage":
                     df_all = edisgo.topology.storage_units_df
-                    value_col = "p_nom"
 
             if "type" in df_all.columns:
                 df_existing = df_all[df_all["type"] == type_name].copy()
