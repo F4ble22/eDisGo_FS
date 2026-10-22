@@ -294,6 +294,18 @@ def analyse_topology(edisgo):
         values_list["pv_open_space_lv"] = float(pv_open_space_lv)
         values_list["pv_open_space_mv"] = float(pv_open_space_mv)
 
+        sums_lv = lv_grid_gen.groupby(["type"])["p_nom"].sum()
+        counts_lv = lv_grid_gen.groupby(["type"])["p_nom"].count()
+        cap_per_gen_lv = sums_lv / counts_lv.replace(
+            {0: np.nan}
+        )  # avoid division by zero
+
+        sums_mv = mv_grid.generators_df.groupby(["type"])["p_nom"].sum()
+        counts_mv = mv_grid.generators_df.groupby(["type"])["p_nom"].count()
+        cap_per_gen_mv = sums_mv / counts_mv.replace(
+            {0: np.nan}
+        )  # avoid division by zero
+
     # installierte Leistung Last nach residential, cts, industrial
     if not load_ges.empty:
         load_cap_by_sector_total = load_ges.groupby(["sector"])["p_set"].sum()
@@ -337,15 +349,6 @@ def analyse_topology(edisgo):
     # list of all unterlying LV grids
     nr_lv_grids = len(list_lv)
     values_list["nr_lv_grids"] = int(nr_lv_grids)
-    # capactiy per generator (installierte Leistung/Anzahl Anlagen) je type lv und mv
-
-    sums_lv = lv_grid_gen.groupby(["type"])["p_nom"].sum()
-    counts_lv = lv_grid_gen.groupby(["type"])["p_nom"].count()
-    cap_per_gen_lv = sums_lv / counts_lv.replace({0: np.nan})  # avoid division by zero
-
-    sums_mv = mv_grid.generators_df.groupby(["type"])["p_nom"].sum()
-    counts_mv = mv_grid.generators_df.groupby(["type"])["p_nom"].count()
-    cap_per_gen_mv = sums_mv / counts_mv.replace({0: np.nan})  # avoid division by zero
 
     for k, v in cap_per_gen_lv.items():
         values_list[f"cap_per_gen_lv.{k}"] = float(v)
@@ -1126,13 +1129,32 @@ def adapt_components_topology(
                 f"Deleting generators for feature {feature} with target value {target_value} for year {year}"
             )
 
-            df_existing = edisgo.topology.generators_df[
-                edisgo.topology.generators_df["type"] == type_name
-            ].copy()
-            logging.info(f"Possible loads of type {type_name}: {len(df_existing)}")
+            # df_existing = edisgo.topology.generators_df[
+            #     edisgo.topology.generators_df["type"] == type_name
+            # ].copy()
+
+            match component:
+                case "generator":
+                    df_all = edisgo.topology.generators_df
+                    value_col = "p_nom"
+                case "load":
+                    df_all = edisgo.topology.loads_df
+                    value_col = "p_set"
+                case "storage":
+                    df_all = edisgo.topology.storage_units_df
+                    value_col = "p_nom"
+
+            if "type" in df_all.columns:
+                df_existing = df_all[df_all["type"] == type_name].copy()
+            else:
+                df_existing = df_all.copy()
+
+            logging.info(
+                f"Possible {component}s of type {type_name}: {len(df_existing)}"
+            )
             if df_existing.empty:
                 logging.warning(
-                    f"No loads found of type {type_name} for year {year}. Skipping deletion for this feature."
+                    f"No {component}s found of type {type_name} for year {year}. Skipping deletion for this feature."
                 )
                 continue
             # Generatoren finden, die am Besten target_value entsprechen
@@ -1142,7 +1164,7 @@ def adapt_components_topology(
                 value_col=p_name,
             )
             logging.info(
-                f"Selected {selected_components} generators for year {year} to match target features."
+                f"Selected {selected_components} {component}s for year {year} to match target features."
             )
 
             for index, row in selected_components.iterrows():
@@ -1153,6 +1175,9 @@ def adapt_components_topology(
                         edisgo.topology.remove_load(index)
                     case "storage":
                         edisgo.topology.remove_storage_unit(index)
+                logging.info(
+                    f"Removed {component} {index} of type {type_name} for year {year}."
+                )
     return edisgo
 
 
@@ -1194,25 +1219,25 @@ def get_current_capacity(edisgo, feature: str):
     if "gen" in feature:
         df = edisgo.topology.generators_df
         if grid_level == "lv":
-            df = pd.concat([lv.generators for lv in edisgo.topology.lv_grids])
+            df = pd.concat([lv.generators_df for lv in edisgo.topology.lv_grids])
         elif grid_level == "mv":
-            df = pd.concat([mv.generators for mv in edisgo.topology.mv_grids])
+            df = edisgo.topology.mv_grid.generators_df
         return df[df["type"] == asset]["p_nom"].sum()
 
     if "load" in feature:
         df = edisgo.topology.loads_df
         if grid_level == "lv":
-            df = pd.concat([lv.loads for lv in edisgo.topology.lv_grids])
+            df = pd.concat([lv.loads_df for lv in edisgo.topology.lv_grids])
         elif grid_level == "mv":
-            df = pd.concat([mv.loads for mv in edisgo.topology.mv_grids])
+            df = edisgo.topology.mv_grid.loads_df
         return df[df["type"] == asset]["p_set"].sum()
 
     if "storage" in feature:
         df = edisgo.topology.storage_units_df
         if grid_level == "lv":
-            df = pd.concat([lv.storage_units for lv in edisgo.topology.lv_grids])
+            df = pd.concat([lv.storage_units_df for lv in edisgo.topology.lv_grids])
         elif grid_level == "mv":
-            df = pd.concat([mv.storage_units for mv in edisgo.topology.mv_grids])
+            df = edisgo.topology.mv_grid.storage_units_df
         return df["p_nom"].sum()
 
     # Bestimme Asset-Typ und zugehörige DataFrame/Spalte
@@ -1322,7 +1347,7 @@ def generate_yearly_scenarios(
         extended_storages
     ]
     logging.info(
-        f"Year {year}: Found {len(extended_storages_rows)} extended generators to consider for adaptation."
+        f"Year {year}: Found {len(extended_storages_rows)} extended storages to consider for adaptation."
     )
 
     if not year_row.empty:
@@ -1392,9 +1417,9 @@ def compute_reinforcement(edisgo):
     # mode: reinforce MV and LV network levels
     # Cost for lines connecting new generators are considered in reinforcement costs
     edisgo = fixing_object(edisgo)
-    edisgo.reinforce(mode="mv", catch_convergence_problems=True, copy_grid=True)
-    edisgo.reinforce(mode="mvlv", catch_convergence_problems=True, copy_grid=True)
-    edisgo.reinforce(mode="lv", catch_convergence_problems=True, copy_grid=True)
+    edisgo.reinforce(mode="mv", catch_convergence_problems=True)
+    edisgo.reinforce(mode="mvlv", catch_convergence_problems=True)
+    edisgo.reinforce(mode="lv", catch_convergence_problems=True)
 
     return edisgo
 
