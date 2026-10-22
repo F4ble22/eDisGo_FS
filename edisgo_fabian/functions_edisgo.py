@@ -265,9 +265,9 @@ def analyse_topology(edisgo):
             mv_grid.generators_df["subtype"] == "pv_rooftop", "p_nom"
         ].sum()
 
-        values_list["pv_rooftop_total"] = float(pv_rooftop_total)
-        values_list["pv_rooftop_lv"] = float(pv_rooftop_lv)
-        values_list["pv_rooftop_mv"] = float(pv_rooftop_mv)
+        values_list["gen_pv_rooftop_total"] = float(pv_rooftop_total)
+        values_list["gen_pv_rooftop_lv"] = float(pv_rooftop_lv)
+        values_list["gen_pv_rooftop_mv"] = float(pv_rooftop_mv)
         # installierte Leistung pv_Freiflaeche (open_space, solar_groud_mounted) gesamt
         pv_open_space_total = gen_ges.loc[
             gen_ges["subtype"].isin(["solar_ground_mounted", "open_space"]), "p_nom"
@@ -284,9 +284,9 @@ def analyse_topology(edisgo):
             "p_nom",
         ].sum()
 
-        values_list["pv_open_space_total"] = float(pv_open_space_total)
-        values_list["pv_open_space_lv"] = float(pv_open_space_lv)
-        values_list["pv_open_space_mv"] = float(pv_open_space_mv)
+        values_list["gen_pv_open_space_total"] = float(pv_open_space_total)
+        values_list["gen_pv_open_space_lv"] = float(pv_open_space_lv)
+        values_list["gen_pv_open_space_mv"] = float(pv_open_space_mv)
 
         sums_lv = lv_grid_gen.groupby(["type"])["p_nom"].sum()
         counts_lv = lv_grid_gen.groupby(["type"])["p_nom"].count()
@@ -419,10 +419,10 @@ def calculate_yearly_features(
         "storage_cap_by_type_lv",
         "storage_cap_by_type_mv",
         # "storage_cap_by_type_total",
-        "pv_rooftop_lv",
-        "pv_rooftop_mv",
-        "pv_open_space_lv",
-        "pv_open_space_mv",
+        "gen_pv_rooftop_lv",
+        "gen_pv_rooftop_mv",
+        "gen_pv_open_space_lv",
+        "gen_pv_open_space_mv",
     ]
 
     for mv_district in df_compare.index:
@@ -1305,13 +1305,27 @@ def generate_yearly_scenarios(
     year_row = yearly_df[yearly_df["year"] == year]  # alle Werte für das Jahr
     target_features = year_row.iloc[0].drop(labels="year")  # nimm erste Zeile
 
-    cols_gen = [col for col in target_features.index if "gen" in col]
-    cols_load = [col for col in target_features.index if "load" in col]
-    cols_stor = [col for col in target_features.index if "storage" in col]
+    cols_gen_lv = [col for col in target_features.index if "gen" in col and "lv" in col]
+    cols_gen_mv = [col for col in target_features.index if "gen" in col and "mv" in col]
+    cols_load_lv = [
+        col for col in target_features.index if "load" in col and "lv" in col
+    ]
+    cols_load_mv = [
+        col for col in target_features.index if "load" in col and "mv" in col
+    ]
+    cols_stor_lv = [
+        col for col in target_features.index if "storage" in col and "lv" in col
+    ]
+    cols_stor_mv = [
+        col for col in target_features.index if "storage" in col and "mv" in col
+    ]
 
-    target_features_gen = target_features[cols_gen].to_dict()
-    target_features_load = target_features[cols_load].to_dict()
-    target_features_stor = target_features[cols_stor].to_dict()
+    target_features_gen_lv = target_features[cols_gen_lv].to_dict()
+    target_features_gen_mv = target_features[cols_gen_mv].to_dict()
+    target_features_load_lv = target_features[cols_load_lv].to_dict()
+    target_features_load_mv = target_features[cols_load_mv].to_dict()
+    target_features_stor_lv = target_features[cols_stor_lv].to_dict()
+    target_features_stor_mv = target_features[cols_stor_mv].to_dict()
 
     # ----- extract target features delta for this year -----
     # sicherstellen, dass die Jahre korrekt sortiert sind
@@ -1321,9 +1335,12 @@ def generate_yearly_scenarios(
     delta_df = yearly_df.diff()
     delta_features = delta_df.loc[year]
 
-    target_features_gen_del = delta_features[cols_gen].to_dict()
-    target_features_load_del = delta_features[cols_load].to_dict()
-    target_features_stor_del = delta_features[cols_stor].to_dict()
+    target_features_gen_del_lv = delta_features[cols_gen_lv].to_dict()
+    target_features_load_del_lv = delta_features[cols_load_lv].to_dict()
+    target_features_stor_del_lv = delta_features[cols_stor_lv].to_dict()
+    target_features_gen_del_mv = delta_features[cols_gen_mv].to_dict()
+    target_features_load_del_mv = delta_features[cols_load_mv].to_dict()
+    target_features_stor_del_mv = delta_features[cols_stor_mv].to_dict()
 
     # ----- adapt loads -----
     # TODO: DSM
@@ -1363,8 +1380,8 @@ def generate_yearly_scenarios(
         edisgo_year = adapt_components_topology(
             edisgo=edisgo_year,
             edisgo_2035=edisgo_2035,
-            target_features=target_features_gen_del,
-            target_features_abs=target_features_gen,
+            target_features=target_features_gen_del_lv,
+            target_features_abs=target_features_gen_lv,
             year=year,
             source_df=extended_generators_rows,
             component="generator",
@@ -1373,8 +1390,8 @@ def generate_yearly_scenarios(
         edisgo_year = adapt_components_topology(
             edisgo=edisgo_year,
             edisgo_2035=edisgo_2035,
-            target_features=target_features_load_del,
-            target_features_abs=target_features_load,
+            target_features=target_features_load_del_lv,
+            target_features_abs=target_features_load_lv,
             year=year,
             source_df=extended_load_rows,
             component="load",
@@ -1383,8 +1400,38 @@ def generate_yearly_scenarios(
         edisgo_year = adapt_components_topology(
             edisgo=edisgo_year,
             edisgo_2035=edisgo_2035,
-            target_features=target_features_stor_del,
-            target_features_abs=target_features_stor,
+            target_features=target_features_stor_del_lv,
+            target_features_abs=target_features_stor_lv,
+            year=year,
+            source_df=extended_storages_rows,
+            component="storage",
+            p_name="p_nom",
+        )
+        edisgo_year = adapt_components_topology(
+            edisgo=edisgo_year,
+            edisgo_2035=edisgo_2035,
+            target_features=target_features_gen_del_mv,
+            target_features_abs=target_features_gen_mv,
+            year=year,
+            source_df=extended_generators_rows,
+            component="generator",
+            p_name="p_nom",
+        )
+        edisgo_year = adapt_components_topology(
+            edisgo=edisgo_year,
+            edisgo_2035=edisgo_2035,
+            target_features=target_features_load_del_mv,
+            target_features_abs=target_features_load_mv,
+            year=year,
+            source_df=extended_load_rows,
+            component="load",
+            p_name="p_set",
+        )
+        edisgo_year = adapt_components_topology(
+            edisgo=edisgo_year,
+            edisgo_2035=edisgo_2035,
+            target_features=target_features_stor_del_mv,
+            target_features_abs=target_features_stor_mv,
             year=year,
             source_df=extended_storages_rows,
             component="storage",
