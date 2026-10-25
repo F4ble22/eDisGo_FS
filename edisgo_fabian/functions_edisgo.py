@@ -497,7 +497,7 @@ def calculate_yearly_features(
                     yearly_data[feature_name] = np.linspace(0.0, scen_value, len(years))
 
         yearly_features[mv_district] = pd.DataFrame(yearly_data)
-        # plot_bar(yearly_features)
+        plot_bar(yearly_features)
     # Form von return ist bissl komisch
     return yearly_features
 
