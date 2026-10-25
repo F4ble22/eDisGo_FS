@@ -1,30 +1,12 @@
-# import openpyxl
 import logging
-import os
 
-from copy import deepcopy
-from itertools import combinations
-from pathlib import Path
-
-import geopandas as gpd
-import networkx as nx
 import numpy as np
 import pandas as pd
 
 from helpers import (
-    best_single_match,
-    greedy_closest_subset,
     plot_bar,
     select_best_match,
 )
-from shapely import wkt
-from sklearn.cluster import KMeans
-from sklearn.metrics import (
-    calinski_harabasz_score,
-    davies_bouldin_score,
-    silhouette_score,
-)
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 # from eDisGo_git.eDisGo.edisgo import edisgo
 from edisgo.tools.logger import setup_logger
@@ -234,6 +216,8 @@ def analyse_topology(edisgo):
     # aus Namen extrahieren, ob MV oder LV angeschlossen ist
     # generator, load und storage für Gesamt Netz holen
     gen_ges = edisgo.topology.generators_df.copy()
+
+    gen_ges = gen_ges[gen_ges["type"] != "solar"]
     load_ges = edisgo.topology.loads_df.copy()
     storage_ges = edisgo.topology.storage_units_df.copy()
     mv_grid = edisgo.topology.mv_grid
@@ -241,6 +225,9 @@ def analyse_topology(edisgo):
     lv_grid_gen = lv_generators(
         list_lv, lv_grid_gen
     )  # generator object hat kein Zugriff über generators_df. Über get_lv_grid('name') machbar.
+    lv_grid_gen = lv_grid_gen[
+        lv_grid_gen["type"] != "solar"
+    ]  # solar aus lv entfernen, da Aufgetrennt in pv_rooftop und pv_open_space
     lv_grid_load = lv_loads(list_lv, lv_grid_load)
     lv_grid_storage = lv_storage(list_lv, lv_grid_storage)
 
@@ -251,6 +238,8 @@ def analyse_topology(edisgo):
         cap_by_type_lv = lv_grid_gen.groupby(["type"])["p_nom"].sum()
         # type mv
         cap_by_type_mv = mv_grid.generators_df.groupby(["type"])["p_nom"].sum()
+        # solar aus mv entfernen, da Aufgetrennt in pv_rooftop und pv_open_space
+        cap_by_type_mv = cap_by_type_mv.drop("solar")
 
         for k, v in cap_by_type_total.items():
             values_list[f"gen_cap_by_type_total.{k}"] = float(v)
@@ -271,9 +260,9 @@ def analyse_topology(edisgo):
             mv_grid.generators_df["subtype"] == "pv_rooftop", "p_nom"
         ].sum()
 
-        values_list["pv_rooftop_total"] = float(pv_rooftop_total)
-        values_list["pv_rooftop_lv"] = float(pv_rooftop_lv)
-        values_list["pv_rooftop_mv"] = float(pv_rooftop_mv)
+        values_list["gen_pv_rooftop_total"] = float(pv_rooftop_total)
+        values_list["gen_pv_rooftop_lv"] = float(pv_rooftop_lv)
+        values_list["gen_pv_rooftop_mv"] = float(pv_rooftop_mv)
         # installierte Leistung pv_Freiflaeche (open_space, solar_groud_mounted) gesamt
         pv_open_space_total = gen_ges.loc[
             gen_ges["subtype"].isin(["solar_ground_mounted", "open_space"]), "p_nom"
@@ -290,9 +279,9 @@ def analyse_topology(edisgo):
             "p_nom",
         ].sum()
 
-        values_list["pv_open_space_total"] = float(pv_open_space_total)
-        values_list["pv_open_space_lv"] = float(pv_open_space_lv)
-        values_list["pv_open_space_mv"] = float(pv_open_space_mv)
+        values_list["gen_pv_open_space_total"] = float(pv_open_space_total)
+        values_list["gen_pv_open_space_lv"] = float(pv_open_space_lv)
+        values_list["gen_pv_open_space_mv"] = float(pv_open_space_mv)
 
         sums_lv = lv_grid_gen.groupby(["type"])["p_nom"].sum()
         counts_lv = lv_grid_gen.groupby(["type"])["p_nom"].count()
@@ -383,7 +372,6 @@ def append_values(values_ist, values_scen):
     return row
 
 
-# TODO: Auftrennen in MV und NV und PV in Dach und Freifläche
 def calculate_yearly_features(
     df_compare: pd.DataFrame, start_year: int = 2021, end_year: int = 2035
 ) -> dict[str, pd.DataFrame]:
@@ -425,10 +413,10 @@ def calculate_yearly_features(
         "storage_cap_by_type_lv",
         "storage_cap_by_type_mv",
         # "storage_cap_by_type_total",
-        "pv_rooftop_lv",
-        "pv_rooftop_mv",
-        "pv_open_space_lv",
-        "pv_open_space_mv",
+        "gen_pv_rooftop_lv",
+        "gen_pv_rooftop_mv",
+        "gen_pv_open_space_lv",
+        "gen_pv_open_space_mv",
     ]
 
     for mv_district in df_compare.index:
@@ -446,7 +434,6 @@ def calculate_yearly_features(
 
             # 2. Prüfen, ob Feature mit Typ-Suffix (z. B. "gen_cap_by_type_lv.solar")
             #    oder OHNE Typ-Suffix (z. B. "pv_rooftop_lv")
-            sample_col = ist_cols[0] if ist_cols else scen_cols[0]
             feature_prefix = feature + "."
 
             # Prüfe, ob die Spalten das Format "ist_{feature}.{type}" haben
@@ -578,7 +565,7 @@ def ensure_bus_exists(edisgo, edisgo_2035, bus_name: str):
                 f"Bus {bus_name} kann mit existierendem Bus {other_bus} über Line {line_index} verbunden werden."
             )
             break  # bus kann verbunden werden, weil mindestens eine line zu einem existierenden bus führt
-    if can_connect == False:
+    if not can_connect:
         logging.info(
             f"Bus {bus_name} kann nicht angelegt werden, da keine der im 2035 Netz am Bus hängenden Leitungen zu einem existierenden Bus führt."
         )
@@ -630,6 +617,16 @@ def add_component(edisgo, edisgo_2035, index, row, component):
     """
 
     bus_name = row["bus"]
+    df_by_component = {
+        "generator": edisgo.topology.generators_df,
+        "load": edisgo.topology.loads_df,
+        "storage": edisgo.topology.storage_units_df,
+    }
+    if index in df_by_component[component].index:
+        logging.warning(
+            f"{component} {index} existiert bereits in der Topologie und wird nicht erneut angelegt."
+        )
+        return edisgo, 0
     check = ensure_bus_exists(edisgo, edisgo_2035, bus_name)
     if check == 0:
         return edisgo, 0
@@ -1056,12 +1053,12 @@ def adapt_components_topology(
     """
     # Filter generators to match target features
     # target_value ist die Änderung der Kapazität zum Vorjahr, target_abs ist die absolute Zielkapazität
+    # used_indices wird über alle Features hinweg geführt, damit eine Komponente
+    # nicht für mehrere Features (z.B. LV- und MV-Feature desselben Typs) doppelt gebaut wird
+    used_indices = set()
     for feature, target_value in target_features.items():
         current_capacity = get_current_capacity(edisgo, feature)
         target_abs = target_features_abs[feature]
-        used_indices = (
-            set()
-        )  # um zu vermeiden, dass gleiche Komponente mehrfach ausgewählt wird
         tolerance = 0.05 * target_abs  # 5% Toleranz
 
         if target_value == 0:
@@ -1079,6 +1076,14 @@ def adapt_components_topology(
                 if "type" in source_df.columns
                 else source_df
             )
+            # Kandidaten auf die Spannungsebene des Features beschränken,
+            # passend zu get_current_capacity (LV: Bus mit lv_grid_id, MV: Bus ohne)
+            if "_lv" in feature or "_mv" in feature:
+                src_buses = edisgo_2035.topology.buses_df
+                lv_bus_ids = set(src_buses.index[src_buses["lv_grid_id"].notna()])
+                mask_lv = df_candidates["bus"].isin(lv_bus_ids)
+                df_candidates = df_candidates[mask_lv if "_lv" in feature else ~mask_lv]
+            df_candidates = df_candidates[~df_candidates.index.isin(used_indices)]
             remaining_candidates = df_candidates.copy()
             logging.info(
                 f"Possible generators of type {type_name}: {len(df_candidates)}"
@@ -1136,13 +1141,10 @@ def adapt_components_topology(
             match component:
                 case "generator":
                     df_all = edisgo.topology.generators_df
-                    value_col = "p_nom"
                 case "load":
                     df_all = edisgo.topology.loads_df
-                    value_col = "p_set"
                 case "storage":
                     df_all = edisgo.topology.storage_units_df
-                    value_col = "p_nom"
 
             if "type" in df_all.columns:
                 df_existing = df_all[df_all["type"] == type_name].copy()
@@ -1297,13 +1299,27 @@ def generate_yearly_scenarios(
     year_row = yearly_df[yearly_df["year"] == year]  # alle Werte für das Jahr
     target_features = year_row.iloc[0].drop(labels="year")  # nimm erste Zeile
 
-    cols_gen = [col for col in target_features.index if "gen" in col]
-    cols_load = [col for col in target_features.index if "load" in col]
-    cols_stor = [col for col in target_features.index if "storage" in col]
+    cols_gen_lv = [col for col in target_features.index if "gen" in col and "lv" in col]
+    cols_gen_mv = [col for col in target_features.index if "gen" in col and "mv" in col]
+    cols_load_lv = [
+        col for col in target_features.index if "load" in col and "lv" in col
+    ]
+    cols_load_mv = [
+        col for col in target_features.index if "load" in col and "mv" in col
+    ]
+    cols_stor_lv = [
+        col for col in target_features.index if "storage" in col and "lv" in col
+    ]
+    cols_stor_mv = [
+        col for col in target_features.index if "storage" in col and "mv" in col
+    ]
 
-    target_features_gen = target_features[cols_gen].to_dict()
-    target_features_load = target_features[cols_load].to_dict()
-    target_features_stor = target_features[cols_stor].to_dict()
+    target_features_gen_lv = target_features[cols_gen_lv].to_dict()
+    target_features_gen_mv = target_features[cols_gen_mv].to_dict()
+    target_features_load_lv = target_features[cols_load_lv].to_dict()
+    target_features_load_mv = target_features[cols_load_mv].to_dict()
+    target_features_stor_lv = target_features[cols_stor_lv].to_dict()
+    target_features_stor_mv = target_features[cols_stor_mv].to_dict()
 
     # ----- extract target features delta for this year -----
     # sicherstellen, dass die Jahre korrekt sortiert sind
@@ -1313,9 +1329,12 @@ def generate_yearly_scenarios(
     delta_df = yearly_df.diff()
     delta_features = delta_df.loc[year]
 
-    target_features_gen_del = delta_features[cols_gen].to_dict()
-    target_features_load_del = delta_features[cols_load].to_dict()
-    target_features_stor_del = delta_features[cols_stor].to_dict()
+    target_features_gen_del_lv = delta_features[cols_gen_lv].to_dict()
+    target_features_load_del_lv = delta_features[cols_load_lv].to_dict()
+    target_features_stor_del_lv = delta_features[cols_stor_lv].to_dict()
+    target_features_gen_del_mv = delta_features[cols_gen_mv].to_dict()
+    target_features_load_del_mv = delta_features[cols_load_mv].to_dict()
+    target_features_stor_del_mv = delta_features[cols_stor_mv].to_dict()
 
     # ----- adapt loads -----
     # TODO: DSM
@@ -1355,8 +1374,8 @@ def generate_yearly_scenarios(
         edisgo_year = adapt_components_topology(
             edisgo=edisgo_year,
             edisgo_2035=edisgo_2035,
-            target_features=target_features_gen_del,
-            target_features_abs=target_features_gen,
+            target_features=target_features_gen_del_lv,
+            target_features_abs=target_features_gen_lv,
             year=year,
             source_df=extended_generators_rows,
             component="generator",
@@ -1365,8 +1384,8 @@ def generate_yearly_scenarios(
         edisgo_year = adapt_components_topology(
             edisgo=edisgo_year,
             edisgo_2035=edisgo_2035,
-            target_features=target_features_load_del,
-            target_features_abs=target_features_load,
+            target_features=target_features_load_del_lv,
+            target_features_abs=target_features_load_lv,
             year=year,
             source_df=extended_load_rows,
             component="load",
@@ -1375,8 +1394,38 @@ def generate_yearly_scenarios(
         edisgo_year = adapt_components_topology(
             edisgo=edisgo_year,
             edisgo_2035=edisgo_2035,
-            target_features=target_features_stor_del,
-            target_features_abs=target_features_stor,
+            target_features=target_features_stor_del_lv,
+            target_features_abs=target_features_stor_lv,
+            year=year,
+            source_df=extended_storages_rows,
+            component="storage",
+            p_name="p_nom",
+        )
+        edisgo_year = adapt_components_topology(
+            edisgo=edisgo_year,
+            edisgo_2035=edisgo_2035,
+            target_features=target_features_gen_del_mv,
+            target_features_abs=target_features_gen_mv,
+            year=year,
+            source_df=extended_generators_rows,
+            component="generator",
+            p_name="p_nom",
+        )
+        edisgo_year = adapt_components_topology(
+            edisgo=edisgo_year,
+            edisgo_2035=edisgo_2035,
+            target_features=target_features_load_del_mv,
+            target_features_abs=target_features_load_mv,
+            year=year,
+            source_df=extended_load_rows,
+            component="load",
+            p_name="p_set",
+        )
+        edisgo_year = adapt_components_topology(
+            edisgo=edisgo_year,
+            edisgo_2035=edisgo_2035,
+            target_features=target_features_stor_del_mv,
+            target_features_abs=target_features_stor_mv,
             year=year,
             source_df=extended_storages_rows,
             component="storage",
@@ -1417,11 +1466,67 @@ def compute_reinforcement(edisgo):
     # mode: reinforce MV and LV network levels
     # Cost for lines connecting new generators are considered in reinforcement costs
     edisgo = fixing_object(edisgo)
-    edisgo.reinforce(mode="mv", catch_convergence_problems=True)
-    edisgo.reinforce(mode="mvlv", catch_convergence_problems=True)
-    edisgo.reinforce(mode="lv", catch_convergence_problems=True)
+    # edisgo.reinforce(mode="lv", catch_convergence_problems=True)
+    # edisgo.reinforce(mode="mvlv", catch_convergence_problems=True)
+    # edisgo.reinforce(mode="mv", catch_convergence_problems=True)
+
+    for mode in ["lv", "mvlv", "mv"]:
+        try:
+            edisgo.reinforce(mode=mode, catch_convergence_problems=True)
+        except ValueError as e:
+            if "Maximum allowed voltage deviation" not in str(e):
+                raise
+            logging.warning(
+                f"Netzverstärkung (mode={mode}) fehlgeschlagen: {e} "
+                "Verletzte Spannungsgrenzen werden geloggt, Verstärkung wird fortgesetzt."
+            )
+            log_voltage_issues(edisgo, mode=mode)
 
     return edisgo
+
+
+def log_voltage_issues(edisgo, mode=None):
+    """
+    Loggt die Busse und Zeitschritte, die das 10%-Spannungsband verletzen.
+
+    Nutzt dieselbe Prüfung wie der finale Check in
+    edisgo.flex_opt.reinforce_grid.reinforce_grid, damit die Ausgabe
+    exakt dem entspricht, was den ValueError ausgelöst hat.
+    """
+    from edisgo.flex_opt import check_tech_constraints as checks
+
+    if edisgo.results.v_res is None or edisgo.results.v_res.empty:
+        logging.warning(
+            "Keine Power-Flow-Ergebnisse (v_res) vorhanden – "
+            "Spannungsverletzungen können nicht im Detail geloggt werden."
+        )
+        return
+
+    voltage_dev = checks.voltage_deviation_from_allowed_voltage_limits(
+        edisgo, split_voltage_band=False
+    )
+    voltage_dev = voltage_dev[voltage_dev != 0.0].dropna(how="all")
+
+    if voltage_dev.empty:
+        return
+
+    # pro Bus: Zeitschritt und Abweichung mit dem größten Betrag
+    worst = voltage_dev.abs().max()
+    worst = worst[worst > 0].sort_values(ascending=False)
+    for bus, deviation in worst.items():
+        timestep = voltage_dev[bus].abs().idxmax()
+        sign = "Überspannung" if voltage_dev.loc[timestep, bus] > 0 else "Unterspannung"
+        logging.warning(
+            f"{sign}: Bus {bus}, Zeitschritt {timestep}, "
+            f"Abweichung {voltage_dev.loc[timestep, bus]:.4f} p.u."
+        )
+
+    # zusätzlich Sammelanzeige in results.unresolved_issues sammeln
+    edisgo.results.unresolved_issues = (
+        pd.concat([edisgo.results.unresolved_issues, voltage_dev])
+        if not edisgo.results.unresolved_issues.empty
+        else voltage_dev
+    )
 
 
 def setup_powerflow(edisgo, mode="wc"):

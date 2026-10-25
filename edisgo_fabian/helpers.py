@@ -3,7 +3,7 @@ import os
 
 from copy import deepcopy
 from itertools import combinations
-from typing import Dict
+from typing import dict
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
@@ -290,7 +290,7 @@ def prep_calc_cluster(results, eDisGo_dir, path_test, cluster="False"):
 def clustering(df):
     """
     Perform clustering analysis on grid area features using K-Means.
-    
+
     Evaluates different combinations of 4 features from the input DataFrame
     and computes the Silhouette Score for each combination to assess clustering quality.
 
@@ -309,34 +309,34 @@ def clustering(df):
     Returns
     -------
     pd.DataFrame
-        DataFrame with columns 'features' (list of feature names) and 
+        DataFrame with columns 'features' (list of feature names) and
         'silhouette_score' (clustering quality score for each feature combination).
     """
     features_relevant = [
-        "ist_gen_cap_by_type_total.solar",
+        # "ist_gen_cap_by_type_total.solar",
         "ist_pv_rooftop_total",
         "ist_pv_open_space_total",
         "ist_gen_cap_by_type_total.wind",
         "ist_load_cap_by_sector_total.cts",
         "ist_load_cap_by_sector_total.residential",
         "ist_load_cap_by_sector_total.industrial",
-        "ist_gen_cap_by_type_lv.solar",
-        "ist_gen_cap_by_type_mv.solar",
+        # "ist_gen_cap_by_type_lv.solar",
+        # "ist_gen_cap_by_type_mv.solar",
         "ist_pv_rooftop_lv",
         "ist_pv_rooftop_mv",
         "ist_pv_open_space_lv",
         "ist_pv_open_space_mv",
         "ist_nr_lv_grids",
         "scen_nr_lv_grids",
-        "scen_gen_cap_by_type_total.solar",
+        # "scen_gen_cap_by_type_total.solar",
         "scen_pv_rooftop_total",
         "scen_pv_open_space_total",
         "scen_gen_cap_by_type_total.wind",
         "scen_load_cap_by_sector_total.cts",
         "scen_load_cap_by_sector_total.residential",
         "scen_load_cap_by_sector_total.industrial",
-        "scen_gen_cap_by_type_lv.solar",
-        "scen_gen_cap_by_type_mv.solar",
+        # "scen_gen_cap_by_type_lv.solar",
+        # "scen_gen_cap_by_type_mv.solar",
         "scen_pv_rooftop_lv",
         "scen_pv_rooftop_mv",
         "scen_pv_open_space_lv",
