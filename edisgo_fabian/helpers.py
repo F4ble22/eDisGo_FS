@@ -3,7 +3,7 @@ import os
 
 from copy import deepcopy
 from itertools import combinations
-from typing import Dict
+from typing import dict
 
 import geopandas as gpd
 import matplotlib.pyplot as plt

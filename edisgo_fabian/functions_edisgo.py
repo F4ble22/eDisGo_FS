@@ -1,16 +1,4 @@
-# This file is part of eDisGo (Electrical Distribution Grid Optimization),
-# a Python package for analyzing flexibility options in distribution grids.
-#
-# Copyright (c) Reiner Lemoine Institut gGmbH
-# Contributors are listed in the version control history:
-# https://github.com/openego/eDisGo/
-#
-# Documentation: https://edisgo.readthedocs.io/
-#
-# SPDX-License-Identifier: AGPL-3.0-or-later
-# import openpyxl
 import logging
-
 
 import numpy as np
 import pandas as pd
@@ -237,7 +225,9 @@ def analyse_topology(edisgo):
     lv_grid_gen = lv_generators(
         list_lv, lv_grid_gen
     )  # generator object hat kein Zugriff über generators_df. Über get_lv_grid('name') machbar.
-    lv_grid_gen = lv_grid_gen[lv_grid_gen["type"] != "solar"]
+    lv_grid_gen = lv_grid_gen[
+        lv_grid_gen["type"] != "solar"
+    ]  # solar aus lv entfernen, da Aufgetrennt in pv_rooftop und pv_open_space
     lv_grid_load = lv_loads(list_lv, lv_grid_load)
     lv_grid_storage = lv_storage(list_lv, lv_grid_storage)
 
@@ -382,7 +372,6 @@ def append_values(values_ist, values_scen):
     return row
 
 
-# TODO: Auftrennen in MV und NV und PV in Dach und Freifläche
 def calculate_yearly_features(
     df_compare: pd.DataFrame, start_year: int = 2021, end_year: int = 2035
 ) -> dict[str, pd.DataFrame]:
