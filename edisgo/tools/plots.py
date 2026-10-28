@@ -759,6 +759,10 @@ def mv_grid_topology(
 
     # storage_units
     if node_color == "expansion_costs":
+        storage_units_df = edisgo_obj.storage_units_df
+        storage_units_df = storage_units_df[
+            storage_units_df.loc[:, "bus"].isin(pypsa_plot.buses.index)
+        ]
         if not edisgo_obj.topology.storage_units_df.empty:
             ax.scatter(
                 pypsa_plot.buses.loc[
