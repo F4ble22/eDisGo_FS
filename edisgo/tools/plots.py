@@ -759,16 +759,16 @@ def mv_grid_topology(
 
     # storage_units
     if node_color == "expansion_costs":
-        if not edisgo_obj.topology.storage_units_df.empty:
+        storage_units_df = edisgo_obj.topology.storage_units_df
+        storage_units_df = storage_units_df[
+            storage_units_df.loc[:, "bus"].isin(pypsa_plot.buses.index)
+        ]
+        if not storage_units_df.empty:
             ax.scatter(
-                pypsa_plot.buses.loc[
-                    edisgo_obj.topology.storage_units_df.loc[:, "bus"], "x"
-                ],
-                pypsa_plot.buses.loc[
-                    edisgo_obj.topology.storage_units_df.loc[:, "bus"], "y"
-                ],
+                pypsa_plot.buses.loc[storage_units_df.loc[:, "bus"], "x"],
+                pypsa_plot.buses.loc[storage_units_df.loc[:, "bus"], "y"],
                 c="orangered",
-                s=edisgo_obj.topology.storage_units_df.loc[:, "p_nom"] * 1000 / 3,
+                s=storage_units_df.loc[:, "p_nom"] * 1000 / 3,
             )
     # add legend for storage size and line capacity
     if (
