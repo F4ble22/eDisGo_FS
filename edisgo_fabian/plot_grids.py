@@ -33,16 +33,20 @@ list_mvgd = ["30992"]
 # list_mvgd loopt alle durch. Du könntest mit list_mvgd[0:10] Liste mit 3648 MS Gebieten aufteilen  # noqa: E501
 for mvgd in list_mvgd:
     ist_path = os.path.join(path_grids, "ist", str(mvgd), "topology")
-    scen_path = os.path.join(path_grids, "scenario", str(mvgd), "topology")
+    scen_path = os.path.join(path_grids, "reinforce", "2035", str(mvgd), "topology")
     ding0_grid_path = os.path.join(dingo_path, str(mvgd), "topology")
     config_path = os.path.join(dingo_path, str(mvgd))
 
     # ---- Set up EDisGo Object 2021 (ist) ----
     logging.info(f"Creating EDisGo objects for mv_district {mvgd}")
     if os.path.exists(ist_path):
-        edisgo_ist = EDisGo(
-            ding0_grid=os.path.join(ist_path), legacy_ding0_grids=False
-        )  # legacy_ding0_grids=False for new ding0 grid structure
+        # edisgo_ist = EDisGo(
+        #     ding0_grid=os.path.join(ist_path), legacy_ding0_grids=False
+        # )  # legacy_ding0_grids=False for new ding0 grid structure
+
+        edisgo_ist = import_edisgo_from_files(
+            os.path.join(path_grids, "ist", str(mvgd)), import_results=True
+        )
         logging.info(
             f"Loaded existing ist topology for mv_district {mvgd} from {ist_path}"
         )
@@ -52,21 +56,26 @@ for mvgd in list_mvgd:
         save_grid(edisgo_ist, ist_path)
 
     # ---- Set up EDisGo Object 2035 reinforced (scen) ----
-
-    edisgo_scen = EDisGo(ding0_grid=os.path.join(scen_path), legacy_ding0_grids=False)  # noqa: E501
+    if os.path.exists(scen_path):
+        # edisgo_scen = EDisGo(ding0_grid=os.path.join(scen_path), legacy_ding0_grids=False)  # noqa: E501
+        edisgo_scen = import_edisgo_from_files(
+            os.path.join(path_grids, "reinforce", "2035", str(mvgd)),
+            import_results=True,
+        )
+        logging.info(
+            f"Loaded existing scenario topology for mv_district {mvgd} from {scen_path}"
+        )
+    else:
+        logging.info(f"No scenario topology for mv_district {mvgd}")
 
     # ----- Plot grids 2021 and 2035 reinforce -----
     title = "MS-Netz Topologie"
     filename = os.path.join(path_save, str(mvgd) + "_istTechnologies.png")
     edisgo_ist.plot_mv_grid_topology(technologies=True, filename=filename, title=title)
 
-    edisgo_obj = import_edisgo_from_files(
-        os.path.join(path_grids, "reinforce", "2035", str(30992)),
-        import_results=True,
-    )
-
-    edisgo_obj.plot_mv_grid_expansion_costs()
-    edisgo_obj.plot_mv_grid_topology(technologies=True, filename=filename, title=title)
+    filename = os.path.join(path_save, str(mvgd) + "_scenTechnologies.png")
+    edisgo_scen.plot_mv_grid_topology(technologies=True, filename=filename, title=title)
+    edisgo_scen.plot_mv_grid_expansion_costs()
 
 # list_e = [edisgo_ist, edisgo_scen]
 

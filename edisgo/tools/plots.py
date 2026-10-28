@@ -412,15 +412,15 @@ def mv_grid_topology(
             "else": "orange",
         }
         fractions_dict = {
-            "BranchTee": 0.00005,
-            "GeneratorFluctuating": 0.0005,
-            "Generator": 0.0005,
-            "Load": 0.0005,
-            "LVStation": 0.00025,
-            "MVStation": 0.0006,
-            "Storage": 0.0005,
-            "DisconnectingPoint": 0.00035,
-            "else": 0.001,
+            "BranchTee": 0.000005,
+            "GeneratorFluctuating": 0.00005,
+            "Generator": 0.00005,
+            "Load": 0.00005,
+            "LVStation": 0.000025,
+            "MVStation": 0.00006,
+            "Storage": 0.00005,
+            "DisconnectingPoint": 0.000035,
+            "else": 0.0001,
         }
         sizes_dict = {k: v * grid_area for k, v in fractions_dict.items()}
         for bus in buses:
