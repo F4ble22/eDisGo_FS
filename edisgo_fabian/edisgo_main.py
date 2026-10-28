@@ -54,7 +54,7 @@ init_logging(
     r"C:\Users\schneiderf\FlexIMa\eDisGo\edisgo_fabian\eDisGo_Results\logging.log"
 )
 
-# -------------------
+# -------------
 # extract mv_district areas for specific DSO
 # -------------------
 if os.path.isfile(path_erg):
@@ -79,7 +79,7 @@ else:
 # Nur für die Netzausbau berechnen.
 # TODO: Clusterungsergebnisse hier einbauen
 
-for mvgd in [30992]:
+for mvgd in [31457]:
     logging.info(f"Processing mv_district: {mvgd}")
     # File path to ding0 grid topology
     ding0_grid_path = os.path.join(
@@ -143,7 +143,7 @@ for mvgd in [30992]:
     results.append(row)
     # save installed capacity for ist and scenario year
     pd.DataFrame(results).to_csv(
-        r"C:\Users\schneiderf\FlexIMa\eDisGo\edisgo_fabian\eDisGo_Results\testNetz_Februar\topology_analysis\installed_capcity_{}.csv".format(  # noqa: UP032
+        r"C:\Users\schneiderf\FlexIMa\eDisGo\edisgo_fabian\eDisGo_Results\testNetz_Februar\topology_analysis\installed_capacity_{}.csv".format(  # noqa: UP032
             mvgd
         ),
         index_label=False,
@@ -299,37 +299,39 @@ else:
     df= prep_calc_cluster(results, eDisGo_dir, path_test, 'True')"""  # noqa: E501
 
 
-"""
 ############################
 ### navigate grid topology
 ############################
 # all grid levels
-df_b = edisgo_obj.topology.buses_df.head()
-df_l = edisgo_obj.topology.lines_df.head()
-df_g = edisgo_obj.topology.generators_df.head()
+# from edisgo.edisgo import import_edisgo_from_files
 
-# mv (besides generators it is the same as all grid levels)
-df_b_mv = edisgo_obj.topology.mv_grid.buses_df
-df_l_mv = edisgo_obj.topology.mv_grid.lines_df
-df_g_mv = edisgo_obj.topology.mv_grid.generators_df
-df_d_mv = edisgo_obj.topology.mv_grid.loads_df
-# dem = list(edisgo_obj.topology.mv_grid.loads)[0] # empty
-df_su_mv = edisgo_obj.topology.mv_grid.storage_units_df
+# edisgo_obj = import_edisgo_from_files(
+#     os.path.join(path_save_topology, "reinforce", "2035", str(mvgd))
+# )
+# df_b = edisgo_obj.topology.buses_df.head()
+# df_l = edisgo_obj.topology.lines_df.head()
+# df_g = edisgo_obj.topology.generators_df.head()
+
+# # mv (besides generators it is the same as all grid levels)
+# df_b_mv = edisgo_obj.topology.mv_grid.buses_df
+# df_l_mv = edisgo_obj.topology.mv_grid.lines_df
+# df_g_mv = edisgo_obj.topology.mv_grid.generators_df
+# df_d_mv = edisgo_obj.topology.mv_grid.loads_df
+# # dem = list(edisgo_obj.topology.mv_grid.loads)[0] # empty
+# df_su_mv = edisgo_obj.topology.mv_grid.storage_units_df
 
 
-switches = list(edisgo_obj.topology.mv_grid.switch_disconnectors)
-switches[0].state
+# switches = list(edisgo_obj.topology.mv_grid.switch_disconnectors)
+# switches[0].state
 
-# lv
-lv_list = list(edisgo_obj.topology.lv_grids)
-lv_ids = [lv.id for lv in lv_list]
-lv_grid = edisgo_obj.topology.get_lv_grid(str(lv_ids[0]))
-df_b_lv = lv_grid.buses_df
-df_l_lv = lv_grid.lines_df
-df_g_lv = lv_grid.generators_df
-df_d_lv = lv_grid.loads_df
-dem = list(lv_grid.loads)[0]
-dem_t = dem.active_power_timeseries
-df_su_lv = lv_grid.storage_units_df
-
-"""
+# # lv
+# lv_list = list(edisgo_obj.topology.lv_grids)
+# lv_ids = [lv.id for lv in lv_list]
+# lv_grid = edisgo_obj.topology.get_lv_grid(str(lv_ids[0]))
+# df_b_lv = lv_grid.buses_df
+# df_l_lv = lv_grid.lines_df
+# df_g_lv = lv_grid.generators_df
+# df_d_lv = lv_grid.loads_df
+# dem = list(lv_grid.loads)[0]
+# dem_t = dem.active_power_timeseries
+# df_su_lv = lv_grid.storage_units_df
