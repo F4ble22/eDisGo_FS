@@ -3,6 +3,8 @@ import os
 import sys
 import traceback
 
+from copy import deepcopy
+
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import networkx as nx
@@ -29,7 +31,7 @@ dingo_path = r"C:\Users\schneiderf\FlexIMa\grids"
 
 # 31457, ländlich: 35538
 # list_mvgd = [name for name in os.listdir(path_grids) if name.isdigit()]
-list_mvgd = ["30992"]
+list_mvgd = ["31457"]
 # list_mvgd loopt alle durch. Du könntest mit list_mvgd[0:10] Liste mit 3648 MS Gebieten aufteilen  # noqa: E501
 for mvgd in list_mvgd:
     ist_path = os.path.join(path_grids, "ist", str(mvgd), "topology")
@@ -71,11 +73,17 @@ for mvgd in list_mvgd:
     # ----- Plot grids 2021 and 2035 reinforce -----
     title = "MS-Netz Topologie"
     filename = os.path.join(path_save, str(mvgd) + "_istTechnologies.png")
-    edisgo_ist.plot_mv_grid_topology(technologies=True, filename=filename, title=title)
+    edisgo_ist_copy = deepcopy(edisgo_ist)
+    edisgo_ist_copy.plot_mv_grid_topology(
+        technologies=True, filename=filename, title=title
+    )
 
     filename = os.path.join(path_save, str(mvgd) + "_scenTechnologies.png")
-    edisgo_scen.plot_mv_grid_topology(technologies=True, filename=filename, title=title)
-    edisgo_scen.plot_mv_grid_expansion_costs()
+    edisgo_scen_copy = deepcopy(edisgo_scen)
+    edisgo_scen_copy.plot_mv_grid_topology(
+        technologies=True, filename=filename, title=title
+    )
+    edisgo_scen_copy.plot_mv_grid_expansion_costs()
 
 # list_e = [edisgo_ist, edisgo_scen]
 
