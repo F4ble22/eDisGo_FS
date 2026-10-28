@@ -79,7 +79,7 @@ else:
 # Nur für die Netzausbau berechnen.
 # TODO: Clusterungsergebnisse hier einbauen
 
-for mvgd in [31457]:
+for mvgd in [31015]:
     logging.info(f"Processing mv_district: {mvgd}")
     # File path to ding0 grid topology
     ding0_grid_path = os.path.join(

@@ -1472,7 +1472,7 @@ def compute_reinforcement(edisgo):
 
     for mode in ["lv", "mvlv", "mv"]:
         try:
-            edisgo.reinforce(mode=mode, catch_convergence_problems=True)
+            edisgo.enhanced_reinforce_grid(separate_lv_mv=True)
         except ValueError as e:
             if "Maximum allowed voltage deviation" not in str(e):
                 raise
