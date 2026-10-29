@@ -13,6 +13,7 @@ from functions_edisgo import (
     analyse_topology,
     append_values,
     calculate_yearly_features,
+    compare_reinforcement,
     compute_reinforcement,
     delete_hp,
     generate_yearly_scenarios,
@@ -225,7 +226,8 @@ for mvgd in [31015]:
                 # edisgo_load.pm_optimize()
 
                 # Compute reinforcement for load case (Schritt 8 & 9)
-                edisgo_load = compute_reinforcement(edisgo_load)
+                edisgo_load = compute_reinforcement(edisgo_load, method="standard")
+                # df_compare_load = compare_reinforcement(edisgo_load)
 
                 save_grid(
                     edisgo_load,
@@ -248,7 +250,8 @@ for mvgd in [31015]:
             ):
                 edisgo_feed = deepcopy(edisgo_year)
                 edisgo_feed = setup_powerflow(edisgo_feed, "fc")
-                edisgo_feed = compute_reinforcement(edisgo_feed)
+                edisgo_feed = compute_reinforcement(edisgo_feed, method="standard")
+                # df_compare_feed = compare_reinforcement(edisgo_feed)
                 save_grid(
                     edisgo_feed,
                     os.path.join(
@@ -265,7 +268,8 @@ for mvgd in [31015]:
             ):
                 edisgo_year = deepcopy(edisgo_year)
                 edisgo_year = setup_powerflow(edisgo_year, "wc")
-                edisgo_year = compute_reinforcement(edisgo_year)
+                edisgo_year = compute_reinforcement(edisgo_year, method="standard")
+                # df_compare_year = compare_reinforcement(edisgo_year)
                 save_grid(
                     edisgo_year,
                     os.path.join(path_save_topology, "reinforce", str(year), str(mvgd)),
