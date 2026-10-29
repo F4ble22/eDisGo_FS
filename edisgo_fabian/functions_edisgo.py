@@ -235,12 +235,12 @@ def analyse_topology(edisgo):
     list_lv = list(edisgo.topology.lv_grids)
     lv_grid_gen = lv_generators(
         list_lv, lv_grid_gen
-    )  # generator object hat kein Zugriff über generators_df. Über get_lv_grid('name') machbar.
+    ).copy()  # generator object hat kein Zugriff über generators_df. Über get_lv_grid('name') machbar.
     lv_grid_gen = lv_grid_gen[
         lv_grid_gen["type"] != "solar"
     ]  # solar aus lv entfernen, da Aufgetrennt in pv_rooftop und pv_open_space
-    lv_grid_load = lv_loads(list_lv, lv_grid_load)
-    lv_grid_storage = lv_storage(list_lv, lv_grid_storage)
+    lv_grid_load = lv_loads(list_lv, lv_grid_load).copy()
+    lv_grid_storage = lv_storage(list_lv, lv_grid_storage).copy()
 
     # installierte Leistung solar, wind, water (water, run_of_river), gas, gas extended, biomass, conventional, others
     if not gen_ges.empty:
@@ -507,7 +507,7 @@ def calculate_yearly_features(
                     scen_value = district_data[scen_cols[0]]
                     yearly_data[feature_name] = np.linspace(0.0, scen_value, len(years))
 
-        yearly_features[mv_district] = pd.DataFrame(yearly_data)
+        yearly_features[mv_district] = pd.DataFrame(yearly_data).copy()
         plot_bar(yearly_features)
     # Form von return ist bissl komisch
     return yearly_features
@@ -1093,7 +1093,9 @@ def adapt_components_topology(
                 src_buses = edisgo_2035.topology.buses_df
                 lv_bus_ids = set(src_buses.index[src_buses["lv_grid_id"].notna()])
                 mask_lv = df_candidates["bus"].isin(lv_bus_ids)
-                df_candidates = df_candidates[mask_lv if "_lv" in feature else ~mask_lv]
+                df_candidates = df_candidates[
+                    mask_lv if "_lv" in feature else ~mask_lv
+                ].copy()
             df_candidates = df_candidates[~df_candidates.index.isin(used_indices)]
             remaining_candidates = df_candidates.copy()
             logging.info(
@@ -1476,33 +1478,33 @@ def compute_reinforcement(edisgo, method="enhanced"):
     edisgo = fixing_object(edisgo)
 
     if method == "enhanced":
-        try:
-            edisgo = enhanced_reinforce_grid(
-                edisgo,
-                separate_lv_grids=True,
-                activate_cost_results_disturbing_mode=True,
-            )
-        except (ValueError, RuntimeError) as e:
-            if not _is_voltage_deviation_error(e):
-                raise
-            logging.warning(
-                f"Enhanced Netzverstärkung fehlgeschlagen: {e} "
-                "Verletzte Spannungsgrenzen werden geloggt."
-            )
-            log_voltage_issues(edisgo)
+        # try:
+        edisgo = enhanced_reinforce_grid(
+            edisgo,
+            separate_lv_grids=True,
+            activate_cost_results_disturbing_mode=True,
+        )
+        # except (ValueError, RuntimeError) as e:
+        #     if not _is_voltage_deviation_error(e):
+        #         raise
+        #     logging.warning(
+        #         f"Enhanced Netzverstärkung fehlgeschlagen: {e} "
+        #         "Verletzte Spannungsgrenzen werden geloggt."
+        #     )
+        #     log_voltage_issues(edisgo)
     elif method == "standard":
         for mode in ["lv", "mvlv", "mv"]:
-            try:
-                edisgo.reinforce(mode=mode, catch_convergence_problems=True)
-            except ValueError as e:
-                if "Maximum allowed voltage deviation" not in str(e):
-                    raise
-                logging.warning(
-                    f"Netzverstärkung (mode={mode}) fehlgeschlagen: {e} "
-                    "Verletzte Spannungsgrenzen werden geloggt, "
-                    "Verstärkung wird fortgesetzt."
-                )
-                log_voltage_issues(edisgo, mode=mode)
+            # try:
+            edisgo.reinforce(mode=mode, catch_convergence_problems=True)
+            # except ValueError as e:
+            #     if "Maximum allowed voltage deviation" not in str(e):
+            #         raise
+            #     logging.warning(
+            #         f"Netzverstärkung (mode={mode}) fehlgeschlagen: {e} "
+            #         "Verletzte Spannungsgrenzen werden geloggt, "
+            #         "Verstärkung wird fortgesetzt."
+            #     )
+            #     log_voltage_issues(edisgo, mode=mode)
     else:
         raise ValueError(
             f"Unbekannte Verstärkungsmethode '{method}'. "
@@ -1512,9 +1514,9 @@ def compute_reinforcement(edisgo, method="enhanced"):
     return edisgo
 
 
-def _is_voltage_deviation_error(exception):
-    """Prüft, ob eine Exception vom Spannungsgrenzen-Check stammt."""
-    return "Maximum allowed voltage deviation" in str(exception)
+# def _is_voltage_deviation_error(exception):
+#     """Prüft, ob eine Exception vom Spannungsgrenzen-Check stammt."""
+#     return "Maximum allowed voltage deviation" in str(exception)
 
 
 def _reinforcement_summary(edisgo, method):
@@ -1564,11 +1566,11 @@ def compare_reinforcement(edisgo, methods=("standard", "enhanced")):
     for method in methods:
         logging.info(f"Starte Netzverstärkung (Methode: {method}).")
         edisgo_copy = copy.deepcopy(edisgo)
-        try:
-            reinforced = compute_reinforcement(edisgo_copy, method=method)
-        except (ValueError, RuntimeError) as e:
-            logging.error(f"Netzverstärkung (Methode {method}) abgebrochen: {e}")
-            continue
+        # try:
+        reinforced = compute_reinforcement(edisgo_copy, method=method)
+        # except (ValueError, RuntimeError) as e:
+        #     logging.error(f"Netzverstärkung (Methode {method}) abgebrochen: {e}")
+        #     continue
         summary = _reinforcement_summary(reinforced, method)
         logging.info(f"Ergebnis {method}: {summary}")
         summaries.append(summary)
@@ -1581,48 +1583,48 @@ def compare_reinforcement(edisgo, methods=("standard", "enhanced")):
     return df
 
 
-def log_voltage_issues(edisgo, mode=None):
-    """
-    Loggt die Busse und Zeitschritte, die das 10%-Spannungsband verletzen.
+# def log_voltage_issues(edisgo, mode=None):
+#     """
+#     Loggt die Busse und Zeitschritte, die das 10%-Spannungsband verletzen.
 
-    Nutzt dieselbe Prüfung wie der finale Check in
-    edisgo.flex_opt.reinforce_grid.reinforce_grid, damit die Ausgabe
-    exakt dem entspricht, was den ValueError ausgelöst hat.
-    """
-    from edisgo.flex_opt import check_tech_constraints as checks
+#     Nutzt dieselbe Prüfung wie der finale Check in
+#     edisgo.flex_opt.reinforce_grid.reinforce_grid, damit die Ausgabe
+#     exakt dem entspricht, was den ValueError ausgelöst hat.
+#     """
+#     from edisgo.flex_opt import check_tech_constraints as checks
 
-    if edisgo.results.v_res is None or edisgo.results.v_res.empty:
-        logging.warning(
-            "Keine Power-Flow-Ergebnisse (v_res) vorhanden – "
-            "Spannungsverletzungen können nicht im Detail geloggt werden."
-        )
-        return
+#     if edisgo.results.v_res is None or edisgo.results.v_res.empty:
+#         logging.warning(
+#             "Keine Power-Flow-Ergebnisse (v_res) vorhanden – "
+#             "Spannungsverletzungen können nicht im Detail geloggt werden."
+#         )
+#         return
 
-    voltage_dev = checks.voltage_deviation_from_allowed_voltage_limits(
-        edisgo, split_voltage_band=False
-    )
-    voltage_dev = voltage_dev[voltage_dev != 0.0].dropna(how="all")
+#     voltage_dev = checks.voltage_deviation_from_allowed_voltage_limits(
+#         edisgo, split_voltage_band=False
+#     )
+#     voltage_dev = voltage_dev[voltage_dev != 0.0].dropna(how="all")
 
-    if voltage_dev.empty:
-        return
+#     if voltage_dev.empty:
+#         return
 
-    # pro Bus: Zeitschritt und Abweichung mit dem größten Betrag
-    worst = voltage_dev.abs().max()
-    worst = worst[worst > 0].sort_values(ascending=False)
-    for bus, deviation in worst.items():
-        timestep = voltage_dev[bus].abs().idxmax()
-        sign = "Überspannung" if voltage_dev.loc[timestep, bus] > 0 else "Unterspannung"
-        logging.warning(
-            f"{sign}: Bus {bus}, Zeitschritt {timestep}, "
-            f"Abweichung {voltage_dev.loc[timestep, bus]:.4f} p.u."
-        )
+#     # pro Bus: Zeitschritt und Abweichung mit dem größten Betrag
+#     worst = voltage_dev.abs().max()
+#     worst = worst[worst > 0].sort_values(ascending=False)
+#     for bus, deviation in worst.items():
+#         timestep = voltage_dev[bus].abs().idxmax()
+#         sign = "Überspannung" if voltage_dev.loc[timestep, bus] > 0 else "Unterspannung"
+#         logging.warning(
+#             f"{sign}: Bus {bus}, Zeitschritt {timestep}, "
+#             f"Abweichung {voltage_dev.loc[timestep, bus]:.4f} p.u."
+#         )
 
-    # zusätzlich Sammelanzeige in results.unresolved_issues sammeln
-    edisgo.results.unresolved_issues = (
-        pd.concat([edisgo.results.unresolved_issues, voltage_dev])
-        if not edisgo.results.unresolved_issues.empty
-        else voltage_dev
-    )
+#     # zusätzlich Sammelanzeige in results.unresolved_issues sammeln
+#     edisgo.results.unresolved_issues = (
+#         pd.concat([edisgo.results.unresolved_issues, voltage_dev])
+#         if not edisgo.results.unresolved_issues.empty
+#         else voltage_dev
+#     )
 
 
 def setup_powerflow(edisgo, mode="wc"):

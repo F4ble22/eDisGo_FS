@@ -80,7 +80,7 @@ else:
 # Nur für die Netzausbau berechnen.
 # TODO: Clusterungsergebnisse hier einbauen
 
-for mvgd in [31015]:
+for mvgd in [30992]:
     logging.info(f"Processing mv_district: {mvgd}")
     # File path to ding0 grid topology
     ding0_grid_path = os.path.join(
@@ -226,7 +226,7 @@ for mvgd in [31015]:
                 # edisgo_load.pm_optimize()
 
                 # Compute reinforcement for load case (Schritt 8 & 9)
-                edisgo_load = compute_reinforcement(edisgo_load, method="standard")
+                edisgo_load = compute_reinforcement(edisgo_load, method="enhanced")
                 # df_compare_load = compare_reinforcement(edisgo_load)
 
                 save_grid(
@@ -250,7 +250,7 @@ for mvgd in [31015]:
             ):
                 edisgo_feed = deepcopy(edisgo_year)
                 edisgo_feed = setup_powerflow(edisgo_feed, "fc")
-                edisgo_feed = compute_reinforcement(edisgo_feed, method="standard")
+                edisgo_feed = compute_reinforcement(edisgo_feed, method="enhanced")
                 # df_compare_feed = compare_reinforcement(edisgo_feed)
                 save_grid(
                     edisgo_feed,
@@ -268,7 +268,7 @@ for mvgd in [31015]:
             ):
                 edisgo_year = deepcopy(edisgo_year)
                 edisgo_year = setup_powerflow(edisgo_year, "wc")
-                edisgo_year = compute_reinforcement(edisgo_year, method="standard")
+                edisgo_year = compute_reinforcement(edisgo_year, method="enhanced")
                 # df_compare_year = compare_reinforcement(edisgo_year)
                 save_grid(
                     edisgo_year,
