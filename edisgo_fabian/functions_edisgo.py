@@ -1470,7 +1470,7 @@ def compute_reinforcement(edisgo):
     # edisgo.reinforce(mode="mvlv", catch_convergence_problems=True)
     # edisgo.reinforce(mode="mv", catch_convergence_problems=True)
 
-    for mode in ["lv", "mvlv", "mv"]:
+    for mode in ["mv", "mvlv", "lv"]:
         try:
             edisgo.enhanced_reinforce_grid(separate_lv_mv=True)
         except ValueError as e:
