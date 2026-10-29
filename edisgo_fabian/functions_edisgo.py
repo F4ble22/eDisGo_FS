@@ -1,3 +1,13 @@
+# This file is part of eDisGo (Electrical Distribution Grid Optimization),
+# a Python package for analyzing flexibility options in distribution grids.
+#
+# Copyright (c) Reiner Lemoine Institut gGmbH
+# Contributors are listed in the version control history:
+# https://github.com/openego/eDisGo/
+#
+# Documentation: https://edisgo.readthedocs.io/
+#
+# SPDX-License-Identifier: AGPL-3.0-or-later
 import logging
 
 import numpy as np
@@ -9,6 +19,7 @@ from helpers import (
 )
 
 # from eDisGo_git.eDisGo.edisgo import edisgo
+from edisgo.flex_opt.reinforce_grid import enhanced_reinforce_grid
 from edisgo.tools.logger import setup_logger
 
 
@@ -1440,17 +1451,21 @@ def generate_yearly_scenarios(
 # =========================
 
 
-def compute_reinforcement(edisgo):
+def compute_reinforcement(edisgo, method="enhanced"):
     """
     Conduct grid reinforcement analysis and get costs.
-
-    Performs grid reinforcement for MV, MV-LV, and LV network levels to ensure the grid
-    can handle the specified power flows. Uses PyPSA for non-linear power flow analysis.
 
     Parameters
     ----------
     edisgo : EDisGo
         The EDisGo object to reinforce.
+    method : str, optional
+        Reinforcement method to use:
+        - "enhanced": :func:`edisgo.flex_opt.reinforce_grid.enhanced_reinforce_grid`
+          reinforces voltage level by voltage level and separates highly loaded
+          LV grids (default)
+        - "standard": sequential reinforcement with :meth:`edisgo.EDisGo.reinforce`
+          for modes "lv", "mvlv" and "mv"
 
     Returns
     -------
@@ -1458,31 +1473,112 @@ def compute_reinforcement(edisgo):
         The EDisGo object with reinforcement applied. Grid expansion costs are
         available in the object's results.
     """
-
-    # non-linear power flow analysis using PyPSA
-    # nur notwendig, bei time series
-    # edisgo_load.analyze()
-    # Do grid reinforcementS
-    # mode: reinforce MV and LV network levels
-    # Cost for lines connecting new generators are considered in reinforcement costs
     edisgo = fixing_object(edisgo)
-    # edisgo.reinforce(mode="lv", catch_convergence_problems=True)
-    # edisgo.reinforce(mode="mvlv", catch_convergence_problems=True)
-    # edisgo.reinforce(mode="mv", catch_convergence_problems=True)
 
-    for mode in ["lv", "mvlv", "mv"]:
+    if method == "enhanced":
         try:
-            edisgo.enhanced_reinforce_grid(separate_lv_mv=True)
-        except ValueError as e:
-            if "Maximum allowed voltage deviation" not in str(e):
+            edisgo = enhanced_reinforce_grid(
+                edisgo,
+                separate_lv_grids=True,
+                activate_cost_results_disturbing_mode=True,
+            )
+        except (ValueError, RuntimeError) as e:
+            if not _is_voltage_deviation_error(e):
                 raise
             logging.warning(
-                f"Netzverstärkung (mode={mode}) fehlgeschlagen: {e} "
-                "Verletzte Spannungsgrenzen werden geloggt, Verstärkung wird fortgesetzt."
+                f"Enhanced Netzverstärkung fehlgeschlagen: {e} "
+                "Verletzte Spannungsgrenzen werden geloggt."
             )
-            log_voltage_issues(edisgo, mode=mode)
+            log_voltage_issues(edisgo)
+    elif method == "standard":
+        for mode in ["lv", "mvlv", "mv"]:
+            try:
+                edisgo.reinforce(mode=mode, catch_convergence_problems=True)
+            except ValueError as e:
+                if "Maximum allowed voltage deviation" not in str(e):
+                    raise
+                logging.warning(
+                    f"Netzverstärkung (mode={mode}) fehlgeschlagen: {e} "
+                    "Verletzte Spannungsgrenzen werden geloggt, "
+                    "Verstärkung wird fortgesetzt."
+                )
+                log_voltage_issues(edisgo, mode=mode)
+    else:
+        raise ValueError(
+            f"Unbekannte Verstärkungsmethode '{method}'. "
+            "Erlaubt sind 'enhanced' und 'standard'."
+        )
 
     return edisgo
+
+
+def _is_voltage_deviation_error(exception):
+    """Prüft, ob eine Exception vom Spannungsgrenzen-Check stammt."""
+    return "Maximum allowed voltage deviation" in str(exception)
+
+
+def _reinforcement_summary(edisgo, method):
+    """Stellt Kennzahlen einer Verstärkung für den Vergleich zusammen."""
+    costs = edisgo.results.grid_expansion_costs
+    total_costs = costs["total_costs"].sum() if costs is not None else 0.0
+    return {
+        "method": method,
+        "total_costs_eur": round(float(total_costs), 2),
+        "n_equipment_changes": (
+            0
+            if edisgo.results.equipment_changes is None
+            else len(edisgo.results.equipment_changes)
+        ),
+        "n_unresolved_voltage_issues": (
+            0
+            if getattr(edisgo.results, "unresolved_issues", None) is None
+            or edisgo.results.unresolved_issues.empty
+            else edisgo.results.unresolved_issues.astype(bool).sum().sum()
+        ),
+    }
+
+
+def compare_reinforcement(edisgo, methods=("standard", "enhanced")):
+    """
+    Vergleicht Verstärkungsmethoden auf Kopien des EDisGo-Objekts.
+
+    Führt für jede Methode in `methods` eine vollständige Netzverstärkung auf
+    einer Deepcopy des übergebenen Objekts aus und loggt Kosten, Anzahl der
+    Ausbauänderungen und verbleibende Spannungsverletzungen.
+
+    Parameters
+    ----------
+    edisgo : EDisGo
+        The EDisGo object to reinforce.
+    methods : tuple, optional
+        Methods to compare (default: ("standard", "enhanced"))
+
+    Returns
+    -------
+    pandas.DataFrame
+        Eine Zeile je Methode mit den Vergleichskennzahlen.
+    """
+    import copy
+
+    summaries = []
+    for method in methods:
+        logging.info(f"Starte Netzverstärkung (Methode: {method}).")
+        edisgo_copy = copy.deepcopy(edisgo)
+        try:
+            reinforced = compute_reinforcement(edisgo_copy, method=method)
+        except (ValueError, RuntimeError) as e:
+            logging.error(f"Netzverstärkung (Methode {method}) abgebrochen: {e}")
+            continue
+        summary = _reinforcement_summary(reinforced, method)
+        logging.info(f"Ergebnis {method}: {summary}")
+        summaries.append(summary)
+
+    df = pd.DataFrame(summaries)
+    if not df.empty:
+        logging.info(
+            "Vergleich der Verstärkungsmethoden:\n" + df.to_string(index=False)
+        )
+    return df
 
 
 def log_voltage_issues(edisgo, mode=None):
