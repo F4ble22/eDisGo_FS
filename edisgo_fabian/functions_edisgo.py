@@ -224,8 +224,8 @@ def analyse_topology(edisgo):
     lv_grid_gen = []
     lv_grid_load = []
     lv_grid_storage = []
-    # aus Namen extrahieren, ob MV oder LV angeschlossen ist
-    # generator, load und storage für Gesamt Netz holen
+    # extract from names whether MV or LV is connected
+    # get generator, load and storage for entire grid
     gen_ges = edisgo.topology.generators_df.copy()
 
     gen_ges = gen_ges[gen_ges["type"] != "solar"]
@@ -235,14 +235,14 @@ def analyse_topology(edisgo):
     list_lv = list(edisgo.topology.lv_grids)
     lv_grid_gen = lv_generators(
         list_lv, lv_grid_gen
-    ).copy()  # generator object hat kein Zugriff über generators_df. Über get_lv_grid('name') machbar.
+    ).copy()  # generator object has no access via generators_df. Possible via get_lv_grid('name').
     lv_grid_gen = lv_grid_gen[
         lv_grid_gen["type"] != "solar"
-    ]  # solar aus lv entfernen, da Aufgetrennt in pv_rooftop und pv_open_space
+    ]  # remove solar from lv, as it is split into pv_rooftop and pv_open_space
     lv_grid_load = lv_loads(list_lv, lv_grid_load).copy()
     lv_grid_storage = lv_storage(list_lv, lv_grid_storage).copy()
 
-    # installierte Leistung solar, wind, water (water, run_of_river), gas, gas extended, biomass, conventional, others
+    # installed capacity solar, wind, water (water, run_of_river), gas, gas extended, biomass, conventional, others
     if not gen_ges.empty:
         cap_by_type_total = gen_ges.groupby(["type"])["p_nom"].sum()
         # type lv
@@ -258,7 +258,7 @@ def analyse_topology(edisgo):
             values_list[f"gen_cap_by_type_lv.{k}"] = float(v)
         for k, v in cap_by_type_mv.items():
             values_list[f"gen_cap_by_type_mv.{k}"] = float(v)
-        # installierte Leistung pv_Aufdach (pv_rooftop) gesamt
+        # installed capacity pv_rooftop total
         pv_rooftop_total = gen_ges.loc[
             gen_ges["subtype"] == "pv_rooftop", "p_nom"
         ].sum()
@@ -274,7 +274,7 @@ def analyse_topology(edisgo):
         values_list["gen_pv_rooftop_total"] = float(pv_rooftop_total)
         values_list["gen_pv_rooftop_lv"] = float(pv_rooftop_lv)
         values_list["gen_pv_rooftop_mv"] = float(pv_rooftop_mv)
-        # installierte Leistung pv_Freiflaeche (open_space, solar_groud_mounted) gesamt
+        # installed capacity pv open space (open_space, solar_ground_mounted) total
         pv_open_space_total = gen_ges.loc[
             gen_ges["subtype"].isin(["solar_ground_mounted", "open_space"]), "p_nom"
         ].sum()
@@ -306,7 +306,7 @@ def analyse_topology(edisgo):
             {0: np.nan}
         )  # avoid division by zero
 
-    # installierte Leistung Last nach residential, cts, industrial
+    # installed capacity load by residential, cts, industrial
     if not load_ges.empty:
         load_cap_by_sector_total = load_ges.groupby(["sector"])["p_set"].sum()
         # lv
@@ -321,7 +321,7 @@ def analyse_topology(edisgo):
         for k, v in load_cap_by_sector_mv.items():
             values_list[f"load_cap_by_sector_mv.{k}"] = float(v)
 
-        # installierte Leistung Last nach residential, cts, industrial
+        # installed capacity load by type
         load_cap_by_type_total = load_ges.groupby(["type"])["p_set"].sum()
         # lv
         load_cap_by_type_lv = lv_grid_load.groupby(["type"])["p_set"].sum()
@@ -335,7 +335,7 @@ def analyse_topology(edisgo):
         for k, v in load_cap_by_type_mv.items():
             values_list[f"load_cap_by_type_mv.{k}"] = float(v)
 
-    # installierte Leistung storage_units
+    # installed capacity storage_units
     if not storage_ges.empty:
         values_list["storage_cap_by_type_total.storage"] = storage_ges["p_nom"].sum()
         # lv
@@ -345,8 +345,8 @@ def analyse_topology(edisgo):
             "p_nom"
         ].sum()
 
-    # Anzahl lv_grids
-    # list of all unterlying LV grids
+    # number of lv_grids
+    # list of all LV grids
     nr_lv_grids = len(list_lv)
     values_list["nr_lv_grids"] = int(nr_lv_grids)
 
@@ -387,13 +387,13 @@ def calculate_yearly_features(
     df_compare: pd.DataFrame, start_year: int = 2021, end_year: int = 2035
 ) -> dict[str, pd.DataFrame]:
     """
-    Führt eine lineare Interpolation von Netz-Features zwischen einem Start- und Endjahr durch,
-    um jährliche Zielwerte für Generatoren, Lasten und Speicher zu berechnen.
-    Unterstützt die Aufteilung nach Spannungsebene (LV/MV) und PV-Subtypen (Dach/Freifläche).
+    Performs a linear interpolation of grid features between a start and end year
+    to calculate annual target values for generators, loads, and storage.
+    Supports the division by voltage level (LV/MV) and PV subtypes (rooftop/open space).
 
-    Für jedes Feature wird eine lineare Entwicklung von den Ist-Werten (z. B. 2021)
-    zu den Szenario-Werten (z. B. 2035) berechnet. Features, die nur im Ist- oder nur im
-    Szenario-Zustand existieren, werden entsprechend angepasst (Start bei 0 oder Ziel bei 0).
+    For each feature, a linear development from the actual values (e.g., 2021)
+    to the scenario values (e.g., 2035) is calculated. Features that exist only in the actual or only in the
+    scenario state are adjusted accordingly (start at 0 or target at 0).
 
     Parameters
     ----------
@@ -435,23 +435,23 @@ def calculate_yearly_features(
         yearly_data = {"year": years}
 
         for feature in list_feature:
-            # 1. Spalten für dieses Feature finden
+            # 1. Find columns for this feature
             feat_cols = [col for col in district_data.index if str(feature) in col]
             ist_cols = [col for col in feat_cols if col.startswith("ist_")]
             scen_cols = [col for col in feat_cols if col.startswith("scen_")]
 
             if not ist_cols and not scen_cols:
-                continue  # Keine Daten für dieses Feature → überspringen
+                continue  # No data for this feature -> skip
 
-            # 2. Prüfen, ob Feature mit Typ-Suffix (z. B. "gen_cap_by_type_lv.solar")
-            #    oder OHNE Typ-Suffix (z. B. "pv_rooftop_lv")
+            # 2. Check if feature has type suffix (e.g., "gen_cap_by_type_lv.solar")
+            #    or WITHOUT type suffix (e.g., "pv_rooftop_lv")
             feature_prefix = feature + "."
 
-            # Prüfe, ob die Spalten das Format "ist_{feature}.{type}" haben
+            # Check if columns have the format "ist_{feature}.{type}"
             has_type_suffix = any(feature_prefix in col for col in feat_cols)
 
             if has_type_suffix:
-                # === FEATURES MIT TYP-SUFFIX (z. B. gen_cap_by_type_lv.solar) ===
+                # === FEATURES WITH TYPE SUFFIX (e.g., gen_cap_by_type_lv.solar) ===
                 ist_types = {
                     col.split(feature_prefix)[1]
                     for col in ist_cols
@@ -463,14 +463,14 @@ def calculate_yearly_features(
                     if feature_prefix in col
                 }
 
-                # Alle Typen, die in beiden Jahren existieren
+                # All types that exist in both years
                 both = ist_types & scen_types
-                # Nur in Ist
+                # Only in actual
                 only_ist = ist_types - scen_types
-                # Nur in Szenario
+                # Only in scenario
                 only_scen = scen_types - ist_types
 
-                # Interpolation für alle Typen
+                # Interpolation for all types
                 for value in both:
                     feature_name = f"{feature}.{value}"
                     ist_value = district_data[f"ist_{feature_name}"]
@@ -499,11 +499,11 @@ def calculate_yearly_features(
                         ist_value, scen_value, len(years)
                     )
                 elif ist_cols:
-                    # Nur Ist-Wert existiert → Ziel = 0
+                    # Only actual value exists -> target = 0
                     ist_value = district_data[ist_cols[0]]
                     yearly_data[feature_name] = np.linspace(ist_value, 0.0, len(years))
                 elif scen_cols:
-                    # Nur Szenario-Wert existiert → Start = 0
+                    # Only scenario value exists -> start = 0
                     scen_value = district_data[scen_cols[0]]
                     yearly_data[feature_name] = np.linspace(0.0, scen_value, len(years))
 
@@ -543,27 +543,25 @@ def ensure_bus_exists(edisgo, edisgo_2035, bus_name: str):
     """
     existing_bus = set(edisgo.topology.buses_df.index)
     if bus_name in existing_bus:
-        logging.info(f"Bus {bus_name} existiert bereits.")
+        logging.info(f"Bus {bus_name} already exists.")
         return 1
 
-    # Bus müsste neu angelegt werden → Vorabprüfung:
-    logging.debug(
-        f"Bus {bus_name} existiert nicht. Prüfung, ob Bus angelegt werden kann..."
-    )
+    # Bus must be newly created -> preliminary check:
+    logging.debug(f"Bus {bus_name} does not exist. Checking if bus can be added...")
     src_buses = edisgo_2035.topology.buses_df
     if bus_name not in src_buses.index:
         raise KeyError(
-            f"Bus '{bus_name}' existiert weder im Ziel noch in der 2035-Vorlage."
+            f"Bus '{bus_name}' exists neither in the target nor in the 2035 template."
         )
 
-    # kann bus mit aktuellen Netz verbunden werden?
-    # Kriterium: mindestens eine der im 2035 Netz am Bus hängenden Leitungen zu einem Bus führt, der im aktuellen Netz bereits existiert.
+    # Can bus be connected to current grid?
+    # Criterion: at least one of the lines connected to the bus in the 2035 grid leads to a bus that already exists in the current grid.
     lines_conn_35 = edisgo_2035.topology.get_connected_lines_from_bus(bus_name)
     if lines_conn_35 is None or len(lines_conn_35) == 0:
         logging.debug(
-            f"Bus {bus_name} hat keine angeschlossenen Lines in 2035. Bus wird nicht angelegt."
+            f"Bus {bus_name} has no connected lines in 2035. Bus will not be added."
         )
-        return 0  # bus kann nicht verbunden werden, weil keine lines daran angeschlossen sind
+        return 0  # bus cannot be connected because no lines are connected to it
     can_connect = False
     for line_index, row in lines_conn_35.iterrows():
         line_data = edisgo_2035.topology.lines_df.loc[line_index]
@@ -573,16 +571,16 @@ def ensure_bus_exists(edisgo, edisgo_2035, bus_name: str):
         if other_bus in existing_bus:
             can_connect = True
             logging.info(
-                f"Bus {bus_name} kann mit existierendem Bus {other_bus} über Line {line_index} verbunden werden."
+                f"Bus {bus_name} can be connected to existing bus {other_bus} via line {line_index}."
             )
-            break  # bus kann verbunden werden, weil mindestens eine line zu einem existierenden bus führt
+            break  # bus can be connected because at least one line leads to an existing bus
     if not can_connect:
         logging.info(
-            f"Bus {bus_name} kann nicht angelegt werden, da keine der im 2035 Netz am Bus hängenden Leitungen zu einem existierenden Bus führt."
+            f"Bus {bus_name} cannot be added because none of the lines connected to it in the 2035 grid lead to an existing bus."
         )
         return 0
 
-    # Bus anlegen (die Prüfung war erfolgreich)
+    # Create bus (the check was successful)
     feat = src_buses.loc[bus_name]
     edisgo.topology.add_bus(
         bus_name=bus_name,
@@ -593,7 +591,7 @@ def ensure_bus_exists(edisgo, edisgo_2035, bus_name: str):
         lv_grid_id=feat["lv_grid_id"],
         in_building=feat["in_building"],
     )
-    logging.info(f"Bus {bus_name} ist neu angelegt.")
+    logging.info(f"Bus {bus_name} has been newly created.")
     return 1
 
 
@@ -635,7 +633,7 @@ def add_component(edisgo, edisgo_2035, index, row, component):
     }
     if index in df_by_component[component].index:
         logging.warning(
-            f"{component} {index} existiert bereits in der Topologie und wird nicht erneut angelegt."
+            f"{component} {index} already exists in the topology and will not be added again."
         )
         return edisgo, 0
     check = ensure_bus_exists(edisgo, edisgo_2035, bus_name)
@@ -655,7 +653,7 @@ def add_component(edisgo, edisgo_2035, index, row, component):
                 generator_id=index,
             )
             edisgo.topology.generators_df.rename(index={gen_id: index}, inplace=True)
-            logging.info(f"Generator {index} an Bus {row['bus']} wurde angelegt.")
+            logging.info(f"Generator {index} at bus {row['bus']} has been created.")
         case "load":
             load_id = edisgo.topology.add_load(
                 bus=bus_name,
@@ -668,7 +666,7 @@ def add_component(edisgo, edisgo_2035, index, row, component):
             )
             # rename index name
             edisgo.topology.loads_df.rename(index={load_id: index}, inplace=True)
-            logging.info(f"Last {index} an Bus {row['bus']} wurde angelegt.")
+            logging.info(f"Load {index} at bus {row['bus']} has been created.")
         case "storage":
             stor_id = edisgo.topology.add_storage_unit(
                 bus=row["bus"],
@@ -681,10 +679,10 @@ def add_component(edisgo, edisgo_2035, index, row, component):
             edisgo.topology.storage_units_df.rename(
                 index={stor_id: index}, inplace=True
             )
-            logging.info(f"Storage {index} an Bus {row['bus']} wurde angelegt.")
+            logging.info(f"Storage {index} at bus {row['bus']} has been created.")
 
-    # Lines von bus mit 2035 vergleichen und bei Bedarf mitnehmen
-    # 4) Fehlen noch Lines? → Jetzt hinzufügen
+    # Compare lines from bus with 2035 and add if necessary
+    # 4) Are lines still missing? -> Add them now
     check_and_add_lines(
         edisgo=edisgo,
         edisgo_2035=edisgo_2035,
@@ -740,7 +738,7 @@ def check_and_add_lines(
 
     keys_35 = {_line_key(row, decimals): idx for idx, row in lines_conn_35.iterrows()}
 
-    # Lines, die nur in 2035 existieren
+    # Lines that only exist in 2035
     missing_keys = set(keys_35) - set(keys_now)
     if len(missing_keys) == 0:
         logging.info(
@@ -751,11 +749,11 @@ def check_and_add_lines(
         row = lines_conn_35.loc[keys_35[key]]
         bus0, bus1 = row.bus0, row.bus1
 
-        # Bedingung: beide Busse müssen existieren
+        # Condition: both buses must exist
         if bus0 not in existing_buses or bus1 not in existing_buses:
             logging.info(
-                f"[{bus_name}]: Für Line {key} zwischen {bus0}–{bus1}, "
-                f" existiert mind. ein Endbus nicht."
+                f"[{bus_name}]: For line {key} between {bus0}–{bus1}, "
+                f" at least one end bus does not exist."
             )
             continue
 
@@ -769,7 +767,7 @@ def check_and_add_lines(
                     if col in row and pd.notna(row[col]):
                         kwargs[col] = float(row[col])
 
-            # Line hinzufügen
+            # Add line
             line_name = edisgo.topology.add_line(
                 bus0=bus0,
                 bus1=bus1,
@@ -818,206 +816,6 @@ def _line_key(row, decimals=6):
     )
 
 
-# def adapt_components_topology(
-#     edisgo,
-#     edisgo_2035,
-#     target_features: dict[str, float],
-#     target_features_abs: dict[str, float],
-#     year: int,
-#     source_df,
-#     component: str,
-#     p_name: str,
-# ):
-#     """
-#     Adapt the topology of network components (generators, loads, storage) to achieve
-#     year-specific target capacities. Takes into account the voltage level (LV/MV) from
-#     the feature names.
-
-#     The adaptation is done by:
-#     1. **Adding** components if the current capacity is below the target.
-#        - The best candidates from `source_df` are selected (using select_best_match).
-#        - Only components of the appropriate voltage level (LV/MV) are considered.
-#     2. **Removing** components if the current capacity is above the target.
-#        - Existing components are removed to reach the target capacity.
-#        - Only components of the appropriate voltage level (LV/MV) are considered.
-
-#     Parameters
-#     ----------
-#     edisgo : EDisGo
-#         EDisGo object whose topology should be adapted (current year).
-#     edisgo_2035 : EDisGo
-#         Reference EDisGo object with the 2035 topology (for new components).
-#     target_features : dict
-#         Dictionary with **changes** in capacity compared to the previous year in MW.
-#         Example: {"gen_cap_by_type_lv.solar": +0.5, "load_cap_by_type_mv.industrial": -0.2}
-#     target_features_abs : dict
-#         Dictionary with **absolute target capacities** in MW for each feature.
-#     year : int
-#         Year for which the adaptation is performed (for logging purposes).
-#     source_df : pd.DataFrame
-#         DataFrame with possible candidate components to add.
-#         Must contain the columns "type", "p_nom"/"p_set", "lv_grid_id", "mv_grid_id".
-#     component : str
-#         Type of components to adapt: "generator", "load" or "storage".
-#     p_name : str
-#         Name of the column in `source_df` that contains the nominal power:
-#         - "p_nom" for generators and storage
-#         - "p_set" for loads
-
-#     Returns
-#     -------
-#     EDisGo
-#         The adapted EDisGo object with updated topology for the given year.
-#     """
-#     # Filter components to match target features
-#     # target_value ist die Änderung der Kapazität zum Vorjahr, target_abs ist die absolute Zielkapazität
-#     for feature, target_value in target_features.items():
-#         # Extrahiere Level und Typ aus Feature-Name
-#         parts = feature.split(".")
-#         if len(parts) < 2:
-#             continue
-#         feature_part = parts[0]
-#         type_name = parts[-1]
-
-#         # Bestimme Grid-Level
-#         grid_level = None
-#         if "_lv" in feature_part:
-#             grid_level = "lv"
-#         elif "_mv" in feature_part:
-#             grid_level = "mv"
-
-#         current_capacity = get_current_capacity(edisgo, feature)
-#         target_abs = target_features_abs[feature]
-#         used_indices = (
-#             set()
-#         )  # um zu vermeiden, dass gleiche Komponente mehrfach ausgewählt wird
-#         tolerance = 0.05 * target_abs  # 5% Toleranz
-
-#         if target_value == 0:
-#             logging.info("Zielwert ist 0. Keine Anpassung nötig")
-#             continue
-
-#         # --- ADD COMPONENTS ---
-#         if (target_value > 0) and (current_capacity < target_abs):
-#             logging.info(
-#                 f"Adding {component}s for feature {feature} with target value {target_value} for year {year}"
-#             )
-#             # Filter source_df nach Grid-Level
-#             if grid_level == "lv":
-#                 source_df_filtered = source_df[source_df["lv_grid_id"].notna()]
-#             elif grid_level == "mv":
-#                 source_df_filtered = source_df[source_df["mv_grid_id"].notna()]
-#             else:
-#                 source_df_filtered = source_df
-
-#             # Komponenten, die hinzugefügt werden können
-#             df_candidates = (
-#                 source_df_filtered[source_df_filtered["type"] == type_name]
-#                 if "type" in source_df_filtered.columns
-#                 else source_df_filtered
-#             )
-#             remaining_candidates = df_candidates.copy()
-#             logging.info(
-#                 f"Possible {component}s of type {type_name}: {len(df_candidates)}"
-#             )
-#             if df_candidates.empty:
-#                 logging.warning(
-#                     f"No {component}s found of type {type_name} for year {year}. Skipping adaptation for this feature."
-#                 )
-#                 continue
-#             while True:
-#                 gap = abs(target_abs - current_capacity)
-#                 if gap <= tolerance:
-#                     logging.info(
-#                         f"Target value for feature {feature} reached within tolerance for year {year}. "
-#                         f"Current capacity: {current_capacity}, Target: {target_abs}, Gap: {gap}"
-#                     )
-#                     break
-#                 if remaining_candidates.empty:
-#                     logging.warning(
-#                         f"No more candidate of type {type_name} available to add for year {year}. "
-#                         f"Current capacity: {current_capacity}, Target: {target_abs}, Gap: {gap}"
-#                     )
-#                     break
-#                 # Komponenten finden, die am besten zum Zielwert passen
-#                 selected_components = select_best_match(
-#                     df=remaining_candidates, target=gap, value_col=p_name
-#                 )
-#                 if selected_components.empty:
-#                     logging.warning(
-#                         f"No {component}s found of type {type_name} to match target value {target_value} for year {year}."
-#                     )
-#                     break
-#                 # Update edisgo topology
-#                 for index, row in selected_components.iterrows():
-#                     edisgo, status = add_component(
-#                         edisgo, edisgo_2035, index, row, component
-#                     )
-#                     if status == 1:
-#                         current_capacity += row[p_name]
-#                     used_indices.add(index)
-#                 remaining_candidates = remaining_candidates.drop(
-#                     index=used_indices, errors="ignore"
-#                 )
-
-#         # --- REMOVE COMPONENTS ---
-#         elif (target_value < 0) and (current_capacity > target_abs):
-#             logging.info(
-#                 f"Deleting {component}s for feature {feature} with target value {target_value} for year {year}"
-#             )
-
-#             # Filter existing components nach Grid-Level
-#             if component == "generator":
-#                 df_existing = edisgo.topology.generators_df[
-#                     edisgo.topology.generators_df["type"] == type_name
-#                 ].copy()
-#             elif component == "load":
-#                 df_existing = edisgo.topology.loads_df[
-#                     edisgo.topology.loads_df["type"] == type_name
-#                 ].copy()
-#             elif component == "storage":
-#                 df_existing = edisgo.topology.storage_units_df[
-#                     edisgo.topology.storage_units_df["type"] == type_name
-#                 ].copy()
-#             else:
-#                 continue
-
-#             # Filter nach Grid-Level
-#             if grid_level == "lv":
-#                 df_existing = df_existing[df_existing["lv_grid_id"].notna()]
-#             elif grid_level == "mv":
-#                 df_existing = df_existing[df_existing["mv_grid_id"].notna()]
-
-#             logging.info(
-#                 f"Possible {component}s of type {type_name}: {len(df_existing)}"
-#             )
-#             if df_existing.empty:
-#                 logging.warning(
-#                     f"No {component}s found of type {type_name} for year {year}. Skipping deletion for this feature."
-#                 )
-#                 continue
-#             # Komponenten finden, die am besten zum Zielwert passen
-#             selected_components = select_best_match(
-#                 df=df_existing,
-#                 target=abs(current_capacity - target_abs),
-#                 value_col=p_name,
-#             )
-#             logging.info(
-#                 f"Selected {len(selected_components)} {component}s for year {year} to match target features."
-#             )
-
-#             for index, row in selected_components.iterrows():
-#                 match component:
-#                     case "generator":
-#                         edisgo.topology.remove_generator(index)
-#                     case "load":
-#                         edisgo.topology.remove_load(index)
-#                     case "storage":
-#                         edisgo.topology.remove_storage_units(index)
-
-#     return edisgo
-
-
 def adapt_components_topology(
     edisgo,
     edisgo_2035,
@@ -1029,43 +827,42 @@ def adapt_components_topology(
     p_name: str,
 ):
     """
-    Passt die Topologie von Netzkomponenten an, um Zielkapazitäten zu erreichen.
+    Adapts the topology of network components to achieve target capacities.
 
-    Diese Funktion vergleicht die aktuelle installierte Kapazität verschiedener
-    Asset-Typen (Generatoren, Lasten, Speicher) mit den angestrebten Zielwerten
-    und fügt Komponenten hinzu oder entfernt sie entsprechend. Die beste
-    Übereinstimmung der Zielkapazität wird durch die select_best_match-Funktion
-    ermittelt.
+    This function compares the current installed capacity of various
+    asset types (generators, loads, storage) with the target values
+    and adds or removes components accordingly. The best
+    match for the target capacity is determined by the select_best_match function.
 
     Parameters
     ----------
     edisgo : EDisGo
-        Das EDisGo-Objekt, dessen Topologie angepasst werden soll.
+        The EDisGo object whose topology should be adapted.
     edisgo_2035 : EDisGo
-        Referenz-EDisGo-Objekt mit der 2035er Topologie für Zusatzkomponenten.
+        Reference EDisGo object with the 2035 topology for additional components.
     target_features : dict[str, float]
-        Dictionary mit den Änderungen der Kapazität zum Vorjahr in MW
-        (z.B. {"gen.solar": 1.5, "load.residential": -0.2}).
+        Dictionary with the changes in capacity compared to the previous year in MW
+        (e.g., {"gen.solar": 1.5, "load.residential": -0.2}).
     target_features_abs : Dict[str, float]
-        Dictionary mit den absoluten Zielkapazitäten in MW für jedes Feature.
+        Dictionary with the absolute target capacities in MW for each feature.
     year : int
-        Das Jahr, für das die Anpassung durchgeführt wird (für Logging).
+        The year for which the adaptation is performed (for logging).
     source_df : pd.DataFrame
-        DataFrame mit möglichen Kandidaten-Komponenten zum Hinzufügen.
+        DataFrame with possible candidate components to add.
     component : str
-        Der Komponententyp zu passen: 'generator', 'load' oder 'storage'.
+        The component type to match: 'generator', 'load' or 'storage'.
     p_name : str
-        Name der Spalte in source_df, die die Nennleistung enthält (z.B. 'p_nom').
+        Name of the column in source_df that contains the nominal power (e.g., 'p_nom').
 
     Returns
     -------
     EDisGo
-        Das angepasste EDisGo-Objekt mit aktualisierter Topologie.
+        The adapted EDisGo object with updated topology.
     """
     # Filter generators to match target features
-    # target_value ist die Änderung der Kapazität zum Vorjahr, target_abs ist die absolute Zielkapazität
-    # used_indices wird über alle Features hinweg geführt, damit eine Komponente
-    # nicht für mehrere Features (z.B. LV- und MV-Feature desselben Typs) doppelt gebaut wird
+    # target_value is the change in capacity compared to the previous year, target_abs is the absolute target capacity
+    # used_indices is tracked across all features to ensure a component
+    # is not built multiple times for different features (e.g., LV and MV features of the same type)
     used_indices = set()
     for feature, target_value in target_features.items():
         current_capacity = get_current_capacity(edisgo, feature)
@@ -1073,22 +870,22 @@ def adapt_components_topology(
         tolerance = 0.05 * target_abs  # 5% Toleranz
 
         if target_value == 0:
-            logging.info("Zielwert ist 0. Keine Anpassung nötig")
+            logging.info("Target value is 0. No adjustment needed.")
             continue
         type_name = feature.split(".")[-1]  # get type from feature name
         # add components
         if (target_value > 0) and (current_capacity < target_abs):
             logging.info(
-                f"Adding generators for feature {feature} with target value {target_value} for year {year}"
+                f"Adding {component}s for feature {feature} with target value {target_value} for year {year}"
             )
-            # Generatoren, die zugebaut werden können. Für storage gibt es keinen type
+            # Generators that can be added. For storage there is no type
             df_candidates = (
                 source_df[source_df["type"] == type_name]
                 if "type" in source_df.columns
                 else source_df
             )
-            # Kandidaten auf die Spannungsebene des Features beschränken,
-            # passend zu get_current_capacity (LV: Bus mit lv_grid_id, MV: Bus ohne)
+            # Restrict candidates to the voltage level of the feature,
+            # matching get_current_capacity (LV: Bus with lv_grid_id, MV: Bus without)
             if "_lv" in feature or "_mv" in feature:
                 src_buses = edisgo_2035.topology.buses_df
                 lv_bus_ids = set(src_buses.index[src_buses["lv_grid_id"].notna()])
@@ -1099,7 +896,7 @@ def adapt_components_topology(
             df_candidates = df_candidates[~df_candidates.index.isin(used_indices)]
             remaining_candidates = df_candidates.copy()
             logging.info(
-                f"Possible generators of type {type_name}: {len(df_candidates)}"
+                f"Possible {component}s of type {type_name}: {len(df_candidates)}"
             )
             if df_candidates.empty:
                 logging.warning(
@@ -1118,16 +915,16 @@ def adapt_components_topology(
                         f"No more candidate of type {type_name} available to add for year {year}. Current capacity: {current_capacity}, Target: {target_abs}, Gap: {gap}"
                     )
                     break
-                # Generatoren finden, die am Besten target_value entsprechen
+                # Find generators that best match target_value
                 selected_components = select_best_match(
                     df=remaining_candidates, target=gap, value_col=p_name
                 )
                 if selected_components.empty:
                     logging.warning(
-                        f"No generators found of type {type_name} to match target value {target_value} for year {year}."
+                        f"No {component}s found of type {type_name} to match target value {target_value} for year {year}."
                     )
                     break
-                # generators_add = die ausgewählten generatoren, die hinzugefügt werden sollen
+                # generators_add = the selected generators to be added
                 # Update edisgo topology
                 for index, row in selected_components.iterrows():
                     edisgo, status = add_component(
@@ -1144,7 +941,7 @@ def adapt_components_topology(
         # remove components
         elif (target_value < 0) and (current_capacity > target_abs):
             logging.info(
-                f"Deleting generators for feature {feature} with target value {target_value} for year {year}"
+                f"Deleting {component}s for feature {feature} with target value {target_value} for year {year}"
             )
 
             # df_existing = edisgo.topology.generators_df[
@@ -1172,14 +969,14 @@ def adapt_components_topology(
                     f"No {component}s found of type {type_name} for year {year}. Skipping deletion for this feature."
                 )
                 continue
-            # Generatoren finden, die am Besten target_value entsprechen
+            # Find components that best match target_value
             selected_components = select_best_match(
                 df=df_existing,
                 target=abs(current_capacity - target_abs),
                 value_col=p_name,
             )
             logging.info(
-                f"Selected {selected_components} {component}s for year {year} to match target features."
+                f"Selected {len(selected_components)} {component}s for year {year} to match target features."
             )
 
             for index, row in selected_components.iterrows():
@@ -1216,14 +1013,8 @@ def get_current_capacity(edisgo, feature: str):
     float
         The sum of nominal power (p_nom or p_set) of all assets of the specified type in MW.
     """
-    # parts = feature.split(".")
-    # if len(parts) < 2:
-    #     return 0.0
 
     asset = feature.split(".")[-1]
-
-    # feature_part = parts[0]  # "gen", "load", or "storage"
-    # type_name = parts[-1]  # e.g., "solar", "residential", etc.
 
     grid_level = None
     if "_lv" in feature:
@@ -1255,32 +1046,7 @@ def get_current_capacity(edisgo, feature: str):
             df = edisgo.topology.mv_grid.storage_units_df
         return df["p_nom"].sum()
 
-    # Bestimme Asset-Typ und zugehörige DataFrame/Spalte
-    # if "gen" in feature_part:
-    #     df = edisgo.topology.generators_df
-    #     power_col = "p_nom"
-    # elif "load" in feature_part:
-    #     df = edisgo.topology.loads_df
-    #     power_col = "p_set"
-    # elif "storage" in feature_part:
-    #     df = edisgo.topology.storage_units_df
-    #     power_col = "p_nom"
-    # else:
-    #     return 0.0
 
-    # Filter nach Typ
-    # filtered_df = df[df["type"] == type_name]
-
-    # # Filter nach Grid-Level, falls angegeben
-    # if grid_level == "lv":
-    #     filtered_df = filtered_df[filtered_df["lv_grid_id"].notna()]
-    # elif grid_level == "mv":
-    #     filtered_df = filtered_df[filtered_df["mv_grid_id"].notna()]
-
-    # return float(filtered_df[power_col].sum())
-
-
-# TODO: Auftrennen in MV und NV und PV in Dach und Freifläche
 def generate_yearly_scenarios(
     edisgo_2035, edisgo_year, yearly_features_dict: dict[str, pd.DataFrame], year: int
 ):
@@ -1308,9 +1074,9 @@ def generate_yearly_scenarios(
         The adapted EDisGo object for the specified year.
     """
     # ----- extract target features in mw for this year -----
-    yearly_df = list(yearly_features_dict.values())[0]  # aus dict liste machen
-    year_row = yearly_df[yearly_df["year"] == year]  # alle Werte für das Jahr
-    target_features = year_row.iloc[0].drop(labels="year")  # nimm erste Zeile
+    yearly_df = list(yearly_features_dict.values())[0]  # convert dict to list
+    year_row = yearly_df[yearly_df["year"] == year]  # all values for the year
+    target_features = year_row.iloc[0].drop(labels="year")  # take first row
 
     cols_gen_lv = [col for col in target_features.index if "gen" in col and "lv" in col]
     cols_gen_mv = [col for col in target_features.index if "gen" in col and "mv" in col]
@@ -1335,10 +1101,10 @@ def generate_yearly_scenarios(
     target_features_stor_mv = target_features[cols_stor_mv].to_dict()
 
     # ----- extract target features delta for this year -----
-    # sicherstellen, dass die Jahre korrekt sortiert sind
+    # ensure that the years are correctly sorted
     yearly_df = yearly_df.sort_values("year").set_index("year")
 
-    # --- Delta berechnen ---
+    # --- calculate delta ---
     delta_df = yearly_df.diff()
     delta_features = delta_df.loc[year]
 
@@ -1445,6 +1211,7 @@ def generate_yearly_scenarios(
             p_name="p_nom",
         )
 
+    # return form is a bit odd
     return edisgo_year
 
 
@@ -1478,49 +1245,49 @@ def compute_reinforcement(edisgo, method="enhanced"):
     edisgo = fixing_object(edisgo)
 
     if method == "enhanced":
-        # try:
-        edisgo = enhanced_reinforce_grid(
-            edisgo,
-            separate_lv_grids=True,
-            activate_cost_results_disturbing_mode=True,
-        )
-        # except (ValueError, RuntimeError) as e:
-        #     if not _is_voltage_deviation_error(e):
-        #         raise
-        #     logging.warning(
-        #         f"Enhanced Netzverstärkung fehlgeschlagen: {e} "
-        #         "Verletzte Spannungsgrenzen werden geloggt."
-        #     )
-        #     log_voltage_issues(edisgo)
+        try:
+            edisgo = enhanced_reinforce_grid(
+                edisgo,
+                separate_lv_grids=True,
+                activate_cost_results_disturbing_mode=True,
+            )
+        except (ValueError, RuntimeError) as e:
+            if not _is_voltage_deviation_error(e):
+                raise
+            logging.warning(
+                f"Enhanced grid reinforcement failed: {e} "
+                "Voltage limit violations will be logged."
+            )
+            log_voltage_issues(edisgo)
     elif method == "standard":
         for mode in ["lv", "mvlv", "mv"]:
-            # try:
-            edisgo.reinforce(mode=mode, catch_convergence_problems=True)
-            # except ValueError as e:
-            #     if "Maximum allowed voltage deviation" not in str(e):
-            #         raise
-            #     logging.warning(
-            #         f"Netzverstärkung (mode={mode}) fehlgeschlagen: {e} "
-            #         "Verletzte Spannungsgrenzen werden geloggt, "
-            #         "Verstärkung wird fortgesetzt."
-            #     )
-            #     log_voltage_issues(edisgo, mode=mode)
+            try:
+                edisgo.reinforce(mode=mode, catch_convergence_problems=True)
+            except ValueError as e:
+                if "Maximum allowed voltage deviation" not in str(e):
+                    raise
+                logging.warning(
+                    f"Grid reinforcement (mode={mode}) failed: {e} "
+                    "Voltage limit violations will be logged, "
+                    "reinforcement will continue."
+                )
+                log_voltage_issues(edisgo, mode=mode)
     else:
         raise ValueError(
-            f"Unbekannte Verstärkungsmethode '{method}'. "
-            "Erlaubt sind 'enhanced' und 'standard'."
+            f"Unknown reinforcement method '{method}'. "
+            "Allowed methods are 'enhanced' and 'standard'."
         )
 
     return edisgo
 
 
-# def _is_voltage_deviation_error(exception):
-#     """Prüft, ob eine Exception vom Spannungsgrenzen-Check stammt."""
-#     return "Maximum allowed voltage deviation" in str(exception)
+def _is_voltage_deviation_error(exception):
+    """Checks if an exception comes from the voltage limit check."""
+    return "Maximum allowed voltage deviation" in str(exception)
 
 
 def _reinforcement_summary(edisgo, method):
-    """Stellt Kennzahlen einer Verstärkung für den Vergleich zusammen."""
+    """Compiles key metrics of a reinforcement for comparison."""
     costs = edisgo.results.grid_expansion_costs
     total_costs = costs["total_costs"].sum() if costs is not None else 0.0
     return {
@@ -1542,11 +1309,11 @@ def _reinforcement_summary(edisgo, method):
 
 def compare_reinforcement(edisgo, methods=("standard", "enhanced")):
     """
-    Vergleicht Verstärkungsmethoden auf Kopien des EDisGo-Objekts.
+    Compare reinforcement methods on copies of the EDisGo object.
 
-    Führt für jede Methode in `methods` eine vollständige Netzverstärkung auf
-    einer Deepcopy des übergebenen Objekts aus und loggt Kosten, Anzahl der
-    Ausbauänderungen und verbleibende Spannungsverletzungen.
+    Performs a complete grid reinforcement for each method in `methods` on
+    a deep copy of the provided object and logs costs, number of
+    expansion changes, and remaining voltage violations.
 
     Parameters
     ----------
@@ -1558,73 +1325,73 @@ def compare_reinforcement(edisgo, methods=("standard", "enhanced")):
     Returns
     -------
     pandas.DataFrame
-        Eine Zeile je Methode mit den Vergleichskennzahlen.
+        One row per method with the comparison metrics.
     """
     import copy
 
     summaries = []
     for method in methods:
-        logging.info(f"Starte Netzverstärkung (Methode: {method}).")
+        logging.info(f"Starting grid reinforcement (method: {method}).")
         edisgo_copy = copy.deepcopy(edisgo)
-        # try:
-        reinforced = compute_reinforcement(edisgo_copy, method=method)
-        # except (ValueError, RuntimeError) as e:
-        #     logging.error(f"Netzverstärkung (Methode {method}) abgebrochen: {e}")
-        #     continue
+        try:
+            reinforced = compute_reinforcement(edisgo_copy, method=method)
+        except (ValueError, RuntimeError) as e:
+            logging.error(f"Grid reinforcement (method {method}) aborted: {e}")
+            continue
         summary = _reinforcement_summary(reinforced, method)
-        logging.info(f"Ergebnis {method}: {summary}")
+        logging.info(f"Result {method}: {summary}")
         summaries.append(summary)
 
     df = pd.DataFrame(summaries)
     if not df.empty:
         logging.info(
-            "Vergleich der Verstärkungsmethoden:\n" + df.to_string(index=False)
+            "Comparison of reinforcement methods:\n" + df.to_string(index=False)
         )
     return df
 
 
-# def log_voltage_issues(edisgo, mode=None):
-#     """
-#     Loggt die Busse und Zeitschritte, die das 10%-Spannungsband verletzen.
+def log_voltage_issues(edisgo, mode=None):
+    """
+    Logs the buses and timesteps that violate the 10% voltage band.
 
-#     Nutzt dieselbe Prüfung wie der finale Check in
-#     edisgo.flex_opt.reinforce_grid.reinforce_grid, damit die Ausgabe
-#     exakt dem entspricht, was den ValueError ausgelöst hat.
-#     """
-#     from edisgo.flex_opt import check_tech_constraints as checks
+    Uses the same check as the final check in
+    edisgo.flex_opt.reinforce_grid.reinforce_grid so that the output
+    exactly matches what triggered the ValueError.
+    """
+    from edisgo.flex_opt import check_tech_constraints as checks
 
-#     if edisgo.results.v_res is None or edisgo.results.v_res.empty:
-#         logging.warning(
-#             "Keine Power-Flow-Ergebnisse (v_res) vorhanden – "
-#             "Spannungsverletzungen können nicht im Detail geloggt werden."
-#         )
-#         return
+    if edisgo.results.v_res is None or edisgo.results.v_res.empty:
+        logging.warning(
+            "No power flow results (v_res) available - "
+            "voltage violations cannot be logged in detail."
+        )
+        return
 
-#     voltage_dev = checks.voltage_deviation_from_allowed_voltage_limits(
-#         edisgo, split_voltage_band=False
-#     )
-#     voltage_dev = voltage_dev[voltage_dev != 0.0].dropna(how="all")
+    voltage_dev = checks.voltage_deviation_from_allowed_voltage_limits(
+        edisgo, split_voltage_band=False
+    )
+    voltage_dev = voltage_dev[voltage_dev != 0.0].dropna(how="all")
 
-#     if voltage_dev.empty:
-#         return
+    if voltage_dev.empty:
+        return
 
-#     # pro Bus: Zeitschritt und Abweichung mit dem größten Betrag
-#     worst = voltage_dev.abs().max()
-#     worst = worst[worst > 0].sort_values(ascending=False)
-#     for bus, deviation in worst.items():
-#         timestep = voltage_dev[bus].abs().idxmax()
-#         sign = "Überspannung" if voltage_dev.loc[timestep, bus] > 0 else "Unterspannung"
-#         logging.warning(
-#             f"{sign}: Bus {bus}, Zeitschritt {timestep}, "
-#             f"Abweichung {voltage_dev.loc[timestep, bus]:.4f} p.u."
-#         )
+    # per bus: timestep and deviation with the largest magnitude
+    worst = voltage_dev.abs().max()
+    worst = worst[worst > 0].sort_values(ascending=False)
+    for bus, deviation in worst.items():
+        timestep = voltage_dev[bus].abs().idxmax()
+        sign = "Overvoltage" if voltage_dev.loc[timestep, bus] > 0 else "Undervoltage"
+        logging.warning(
+            f"{sign}: Bus {bus}, timestep {timestep}, "
+            f"deviation {voltage_dev.loc[timestep, bus]:.4f} p.u."
+        )
 
-#     # zusätzlich Sammelanzeige in results.unresolved_issues sammeln
-#     edisgo.results.unresolved_issues = (
-#         pd.concat([edisgo.results.unresolved_issues, voltage_dev])
-#         if not edisgo.results.unresolved_issues.empty
-#         else voltage_dev
-#     )
+    # additionally collect display in results.unresolved_issues
+    edisgo.results.unresolved_issues = (
+        pd.concat([edisgo.results.unresolved_issues, voltage_dev])
+        if not edisgo.results.unresolved_issues.empty
+        else voltage_dev
+    )
 
 
 def setup_powerflow(edisgo, mode="wc"):
@@ -1665,7 +1432,7 @@ def setup_powerflow(edisgo, mode="wc"):
     elif mode == "lc":
         edisgo.set_time_series_worst_case_analysis(cases=["load_case"])
     elif mode == "ts":
-        # wenn ich time series nutze, dann muss ich time:index setzen. Entweder bei erstellung EDisGo Object oder nachträglich
+        # if I use time series, then I must set time index. Either during EDisGo object creation or afterwards
         timeindex = pd.date_range("2011-01-01", periods=8760, freq="H")
         edisgo.set_timeindex(timeindex)
         # load time series data from csv files as pd.DataFrame or take from oedb
