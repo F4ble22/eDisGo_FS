@@ -228,7 +228,7 @@ def analyse_topology(edisgo):
     # get generator, load and storage for entire grid
     gen_ges = edisgo.topology.generators_df.copy()
 
-    gen_ges = gen_ges[gen_ges["type"] != "solar"]
+    # gen_ges = gen_ges[gen_ges["type"] != "solar"]
     load_ges = edisgo.topology.loads_df.copy()
     storage_ges = edisgo.topology.storage_units_df.copy()
     mv_grid = edisgo.topology.mv_grid
@@ -236,9 +236,9 @@ def analyse_topology(edisgo):
     lv_grid_gen = lv_generators(
         list_lv, lv_grid_gen
     ).copy()  # generator object has no access via generators_df. Possible via get_lv_grid('name').
-    lv_grid_gen = lv_grid_gen[
-        lv_grid_gen["type"] != "solar"
-    ]  # remove solar from lv, as it is split into pv_rooftop and pv_open_space
+    # lv_grid_gen = lv_grid_gen[
+    #     lv_grid_gen["type"] != "solar"
+    # ]  # remove solar from lv, as it is split into pv_rooftop and pv_open_space
     lv_grid_load = lv_loads(list_lv, lv_grid_load).copy()
     lv_grid_storage = lv_storage(list_lv, lv_grid_storage).copy()
 
@@ -250,7 +250,7 @@ def analyse_topology(edisgo):
         # type mv
         cap_by_type_mv = mv_grid.generators_df.groupby(["type"])["p_nom"].sum()
         # solar aus mv entfernen, da Aufgetrennt in pv_rooftop und pv_open_space
-        cap_by_type_mv = cap_by_type_mv.drop("solar")
+        # cap_by_type_mv = cap_by_type_mv.drop("solar")
 
         for k, v in cap_by_type_total.items():
             values_list[f"gen_cap_by_type_total.{k}"] = float(v)
@@ -424,10 +424,10 @@ def calculate_yearly_features(
         "storage_cap_by_type_lv",
         "storage_cap_by_type_mv",
         # "storage_cap_by_type_total",
-        "gen_pv_rooftop_lv",
-        "gen_pv_rooftop_mv",
-        "gen_pv_open_space_lv",
-        "gen_pv_open_space_mv",
+        # "gen_pv_rooftop_lv",
+        # "gen_pv_rooftop_mv",
+        # "gen_pv_open_space_lv",
+        # "gen_pv_open_space_mv",
     ]
 
     for mv_district in df_compare.index:
