@@ -1459,9 +1459,7 @@ def _load_reinforced_grid(path):
     return import_edisgo_from_files(path, import_timeseries=True, import_results=True)
 
 
-def _reinforce_year_cases(
-    edisgo_year, year, mvgd, path_save_topology, method="standard"
-):
+def _reinforce_year_cases(edisgo_year, year, mvgd, reinforce_base, method="standard"):
     """
     Reinforce the three cases (load, feed-in, worst case) for one year and save them.
 
@@ -1476,8 +1474,9 @@ def _reinforce_year_cases(
         The year to reinforce.
     mvgd : int or str
         The mv_district id (used in the save paths).
-    path_save_topology : str
-        Base path under which results are saved.
+    reinforce_base : str
+        Base path of the approach under which results are saved
+        (e.g. <path_save_topology>/reinforce/<approach>).
     method : str
         Reinforcement method passed to compute_reinforcement.
 
@@ -1486,7 +1485,7 @@ def _reinforce_year_cases(
     dict
         Dict with the reinforced EDisGo objects per case ("lc", "fc", "wc").
     """
-    base = os.path.join(path_save_topology, "reinforce", str(year))
+    base = os.path.join(reinforce_base, str(year))
     reinforced = {}
     for case in ("lc", "fc", "wc"):
         case_dir = os.path.join(base, str(mvgd) + _CASE_SUFFIX[case])
@@ -1532,7 +1531,8 @@ def run_yearly_reinforcement(
     mvgd : int or str
         The mv_district id (used in the save paths and logging).
     path_save_topology : str
-        Base path under which results are saved.
+        Base path under which results are saved. Results of each approach are
+        stored in a separate subfolder <path_save_topology>/reinforce/<approach>/.
     approach : str
         "forward-fill-in": start from the start-year grid and add components
         and reinforcement year by year up to the end year (previous behaviour).
@@ -1551,12 +1551,13 @@ def run_yearly_reinforcement(
         Reinforcement method passed to compute_reinforcement. Default: "standard".
 
     """
+    # separate subfolder per approach, so results of different approaches do
+    # not mix and the "already reinforced" checks stay per approach
+    reinforce_base = os.path.join(path_save_topology, "reinforce", approach)
     if approach == "forward-fill-in":
         edisgo_year = deepcopy(edisgo_ist)
         for year in range(start_year + 1, end_year + 1):
-            target_dir = os.path.join(
-                path_save_topology, "reinforce", str(year), str(mvgd)
-            )
+            target_dir = os.path.join(reinforce_base, str(year), str(mvgd))
             logging.info(f"Generating scenario for year {year} and mv_district {mvgd}")
             if os.path.exists(target_dir):
                 logging.info(
@@ -1577,7 +1578,7 @@ def run_yearly_reinforcement(
             )
             # ---- reinforce grid (load, feed-in and worst case) ----
             edisgo_year = _reinforce_year_cases(
-                edisgo_year, year, mvgd, path_save_topology, method
+                edisgo_year, year, mvgd, reinforce_base, method
             )["wc"]
             logging.info(
                 f"Created and saved grid scenario for year {year} and mv_district "
@@ -1591,13 +1592,11 @@ def run_yearly_reinforcement(
         ].copy()
         # ---- optimal expansion of the end year ----
         reinforced_end = _reinforce_year_cases(
-            deepcopy(edisgo_scen), end_year, mvgd, path_save_topology, method
+            deepcopy(edisgo_scen), end_year, mvgd, reinforce_base, method
         )
         # ---- go backward year by year down to the start year ----
         for year in range(end_year - 1, start_year - 1, -1):
-            target_dir = os.path.join(
-                path_save_topology, "reinforce", str(year), str(mvgd)
-            )
+            target_dir = os.path.join(reinforce_base, str(year), str(mvgd))
             if os.path.exists(target_dir):
                 logging.info(
                     f"year {year} for {mvgd} is already reinforced. next year."
@@ -1608,8 +1607,7 @@ def run_yearly_reinforcement(
             )
             for case in ("lc", "fc", "wc"):
                 case_dir = os.path.join(
-                    path_save_topology,
-                    "reinforce",
+                    reinforce_base,
                     str(year),
                     str(mvgd) + _CASE_SUFFIX[case],
                 )
