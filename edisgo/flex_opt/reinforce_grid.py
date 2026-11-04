@@ -1240,3 +1240,310 @@ def _add_transformer_changes_to_equipment_changes(
     )
 
     edisgo.results.equipment_changes = pd.concat(df_list)
+
+
+def backward_pull_out(
+    edisgo: EDisGo,
+    timesteps_pfa=None,
+    mode: str | None = None,
+    split_voltage_band: bool = True,
+    line_state: pd.DataFrame | None = None,
+) -> tuple[list, pd.DataFrame]:
+    """
+    Backward-pull-out: remove grid expansion measures that are not needed anymore.
+
+    Iterates over the equipment changes recorded in
+    :attr:`~.network.results.Results.equipment_changes` in reverse order and
+    tries to revert each measure (added parallel lines, line type changes and
+    added transformers). A revert is kept only if a subsequent power flow
+    analysis shows no overloading or voltage issues, otherwise it is undone.
+    Kept reverts are recorded in ``equipment_changes`` with change "removed"
+    and grid expansion costs are recalculated at the end.
+
+    Parameters
+    ----------
+    edisgo : :class:`~.EDisGo`
+        The reinforced eDisGo object the measures are pulled out of.
+    timesteps_pfa : str or \
+        :pandas:`pandas.DatetimeIndex<DatetimeIndex>` or \
+        :pandas:`pandas.Timestamp<Timestamp>`
+        Time steps the power flow analysis is conducted for when checking
+        whether a pulled-out measure is admissible. If None, all time steps
+        in :attr:`~.network.timeseries.TimeSeries.timeindex` are used.
+        Default: None.
+    mode : str | None
+        Determines for which network levels the checks are conducted. Possible
+        options are None (MV and LV), "mv" and "lv". Default: None.
+    split_voltage_band : bool
+        If True the allowed voltage band is split over the voltage levels,
+        see :func:`reinforce_grid`. Default: True.
+    line_state : :pandas:`pandas.DataFrame<DataFrame>` | None
+        Snapshot of ``topology.lines_df[["type_info", "kind", "num_parallel"]]``
+        taken before reinforcement, used as revert target for line measures.
+        If None, the current state is used, in which case only a reduction of
+        parallel lines is possible. Default: None.
+
+    Returns
+    -------
+    tuple(list, :pandas:`pandas.DataFrame<DataFrame>`)
+        List of pulled-out measures as (kind, name, quantity) tuples and the
+        remaining unresolved issues (empty if the grid is feasible without the
+        pulled-out measures).
+
+    """
+    if line_state is None:
+        line_state = edisgo.topology.lines_df[
+            ["type_info", "kind", "num_parallel"]
+        ].copy()
+
+    pulled_out = []
+    changes = edisgo.results.equipment_changes
+    if changes is None or changes.empty:
+        logger.info(
+            "Backward-pull-out: no equipment changes recorded, nothing to pull out."
+        )
+        return pulled_out, pd.DataFrame(dtype=float)
+
+    # iterate in reverse order of application: measures added last are
+    # tried to be pulled out first
+    for index, row in changes.iloc[::-1].iterrows():
+        if row["change"] == "changed" and index in edisgo.topology.lines_df.index:
+            pulled = _try_pull_out_line(
+                edisgo, index, row, line_state, timesteps_pfa, mode, split_voltage_band
+            )
+        elif (
+            row["change"] == "added"
+            and isinstance(row["equipment"], str)
+            and (
+                row["equipment"] in edisgo.topology.transformers_df.index
+                or row["equipment"] in edisgo.topology.transformers_hvmv_df.index
+            )
+        ):
+            pulled = _try_pull_out_transformer(
+                edisgo, index, row, timesteps_pfa, mode, split_voltage_band
+            )
+        else:
+            continue
+        if pulled is not None:
+            pulled_out.append(pulled)
+
+    edisgo.analyze(mode=mode, timesteps=timesteps_pfa)
+    _, unresolved = _pull_out_issues(edisgo, mode, split_voltage_band)
+    edisgo.results.grid_expansion_costs = grid_expansion_costs(edisgo)
+    logger.info(f"Backward-pull-out: {len(pulled_out)} measure(s) pulled out.")
+    return pulled_out, unresolved
+
+
+def _pull_out_issues(
+    edisgo: EDisGo, mode: str | None, split_voltage_band: bool
+) -> tuple[bool, pd.DataFrame]:
+    """
+    Check overloading and voltage issues after a trial pull-out.
+
+    Returns
+    -------
+    tuple(bool, :pandas:`pandas.DataFrame<DataFrame>`)
+        True if any issue exists and a DataFrame with all unresolved issues.
+
+    """
+    if mode == "lv":
+        crit_lines = checks.lv_line_max_relative_overload(edisgo)
+        stations = pd.DataFrame(dtype=float)
+        crit_nodes = checks.voltage_issues(
+            edisgo, voltage_level="lv", split_voltage_band=split_voltage_band
+        )
+    elif mode == "mv":
+        crit_lines = checks.mv_line_max_relative_overload(edisgo)
+        stations = checks.hv_mv_station_max_overload(edisgo)
+        crit_nodes = checks.voltage_issues(
+            edisgo, voltage_level="mv", split_voltage_band=split_voltage_band
+        )
+    else:
+        crit_lines = pd.concat(
+            [
+                checks.mv_line_max_relative_overload(edisgo),
+                checks.lv_line_max_relative_overload(edisgo),
+            ]
+        )
+        stations = pd.concat(
+            [
+                checks.hv_mv_station_max_overload(edisgo),
+                checks.mv_lv_station_max_overload(edisgo),
+            ]
+        )
+        crit_nodes = pd.concat(
+            [
+                checks.voltage_issues(
+                    edisgo, voltage_level="mv", split_voltage_band=split_voltage_band
+                ),
+                checks.voltage_issues(
+                    edisgo,
+                    voltage_level="mv_lv",
+                    split_voltage_band=split_voltage_band,
+                ),
+                checks.voltage_issues(
+                    edisgo, voltage_level="lv", split_voltage_band=split_voltage_band
+                ),
+            ]
+        )
+    unresolved = pd.concat([crit_lines, stations, crit_nodes])
+    return not unresolved.empty, unresolved
+
+
+def _apply_line_state(
+    edisgo: EDisGo, line: str, type_info: str, kind: str, num_parallel: int
+) -> None:
+    """
+    Set line type and number of parallel lines, recomputing r, x, b and s_nom.
+
+    Order matters: the line type is set first (this resets num_parallel to 1
+    and recomputes r/x/b/s_nom from the equipment data), afterwards the number
+    of parallel lines is set (this rescales r/x/b/s_nom accordingly).
+
+    """
+    if kind == "cable":
+        edisgo.topology.change_line_type([line], type_info)
+    else:
+        # overhead lines are not supported by change_line_type (cables only),
+        # therefore type and parameters are set manually
+        data = None
+        for key in ("lv_overhead_lines", "mv_overhead_lines"):
+            if (
+                key in edisgo.topology.equipment_data
+                and type_info in edisgo.topology.equipment_data[key].index
+            ):
+                data = edisgo.topology.equipment_data[key].loc[type_info].copy()
+                break
+        if data is None:
+            raise KeyError(
+                f"Line type {type_info} not found in equipment data "
+                "'lv_overhead_lines'/'mv_overhead_lines'."
+            )
+        lines_df = edisgo.topology._lines_df
+        v_nom = edisgo.topology.buses_df.at[lines_df.at[line, "bus0"], "v_nom"]
+        if v_nom != data.U_n:
+            data.U_n = v_nom
+        length = lines_df.at[line, "length"]
+        lines_df.at[line, "type_info"] = type_info
+        lines_df.at[line, "kind"] = kind
+        lines_df.at[line, "num_parallel"] = 1
+        lines_df.at[line, "r"] = tools.calculate_line_resistance(
+            data.R_per_km, length, 1
+        )
+        lines_df.at[line, "x"] = tools.calculate_line_reactance(
+            data.L_per_km, length, 1
+        )
+        lines_df.at[line, "b"] = tools.calculate_line_susceptance(
+            data.C_per_km, length, 1
+        )
+        lines_df.at[line, "s_nom"] = tools.calculate_apparent_power(
+            data.U_n, data.I_max_th, 1
+        )
+    if num_parallel > 1:
+        edisgo.topology.update_number_of_parallel_lines(
+            pd.Series(index=[line], data=[num_parallel])
+        )
+
+
+def _try_pull_out_line(
+    edisgo: EDisGo,
+    line: str,
+    row: pd.Series,
+    line_state: pd.DataFrame,
+    timesteps_pfa,
+    mode: str | None,
+    split_voltage_band: bool,
+) -> tuple | None:
+    """
+    Try to revert a line measure to the pre-reinforcement state.
+
+    Returns (kind, line, quantity) if the revert is admissible, else None.
+
+    """
+    current = edisgo.topology.lines_df.loc[line, ["type_info", "kind", "num_parallel"]]
+    target = line_state.loc[line] if line in line_state.index else current
+    if current["type_info"] == target["type_info"] and int(
+        current["num_parallel"]
+    ) == int(target["num_parallel"]):
+        return None
+    _apply_line_state(
+        edisgo, line, target["type_info"], target["kind"], int(target["num_parallel"])
+    )
+    edisgo.analyze(mode=mode, timesteps=timesteps_pfa)
+    has_issues, _ = _pull_out_issues(edisgo, mode, split_voltage_band)
+    if not has_issues:
+        quantity = max(1, int(current["num_parallel"]) - int(target["num_parallel"]))
+        _record_pull_out(
+            edisgo, line, row["iteration_step"], target["type_info"], quantity
+        )
+        return ("line", line, quantity)
+    # revert not admissible: restore previous state
+    _apply_line_state(
+        edisgo,
+        line,
+        current["type_info"],
+        current["kind"],
+        int(current["num_parallel"]),
+    )
+    return None
+
+
+def _try_pull_out_transformer(
+    edisgo: EDisGo,
+    station: str,
+    row: pd.Series,
+    timesteps_pfa,
+    mode: str | None,
+    split_voltage_band: bool,
+) -> tuple | None:
+    """
+    Try to remove an added transformer from its station.
+
+    Returns (kind, transformer, quantity) if the removal is admissible,
+    else None.
+
+    """
+    trafo = row["equipment"]
+    hvmv = trafo in edisgo.topology.transformers_hvmv_df.index
+    df = (
+        edisgo.topology.transformers_hvmv_df
+        if hvmv
+        else edisgo.topology.transformers_df
+    )
+    removed_row = df.loc[trafo].copy()
+    df.drop(index=trafo, inplace=True)
+    edisgo.analyze(mode=mode, timesteps=timesteps_pfa)
+    has_issues, _ = _pull_out_issues(edisgo, mode, split_voltage_band)
+    if not has_issues:
+        _record_pull_out(edisgo, station, row["iteration_step"], trafo, 1)
+        return ("transformer", trafo, 1)
+    # removal not admissible: restore the transformer row
+    if hvmv:
+        edisgo.topology.transformers_hvmv_df = pd.concat(
+            [edisgo.topology.transformers_hvmv_df, removed_row.to_frame().T]
+        )
+    else:
+        edisgo.topology.transformers_df = pd.concat(
+            [edisgo.topology.transformers_df, removed_row.to_frame().T]
+        )
+    return None
+
+
+def _record_pull_out(
+    edisgo: EDisGo, index: str, iteration_step: int, equipment: str, quantity: int
+) -> None:
+    """Record a pulled-out measure in results.equipment_changes as "removed"."""
+    edisgo.results.equipment_changes = pd.concat(
+        [
+            edisgo.results.equipment_changes,
+            pd.DataFrame(
+                {
+                    "iteration_step": [iteration_step],
+                    "change": ["removed"],
+                    "equipment": [equipment],
+                    "quantity": [quantity],
+                },
+                index=[index],
+            ),
+        ]
+    )
