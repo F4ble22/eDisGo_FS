@@ -731,6 +731,18 @@ def catch_convergence_reinforce_grid(
                 converged = False
             else:
                 raise
+        except RuntimeError as e:
+            # a singular Jacobian (SuperLU "failed to factorize matrix") means
+            # the power flow diverged numerically - treat like non-convergence
+            # so the scaling loop can try a lower scaling factor
+            if "failed to factorize" in str(e) or "singular" in str(e).lower():
+                logger.warning(
+                    f"Power flow failed with singular matrix at "
+                    f"{set_scaling_factor=}: {e}"
+                )
+                converged = False
+            else:
+                raise
         return converged
 
     logger.debug("Start 'catch-convergence' reinforcement.")
@@ -1327,11 +1339,31 @@ def backward_pull_out(
         if pulled is not None:
             pulled_out.append(pulled)
 
-    edisgo.analyze(mode=mode, timesteps=timesteps_pfa)
-    _, unresolved = _pull_out_issues(edisgo, mode, split_voltage_band)
+    if _trial_analyze(edisgo, timesteps_pfa, mode):
+        _, unresolved = _pull_out_issues(edisgo, mode, split_voltage_band)
+    else:
+        # final power flow failed even after restoring inadmissible reverts;
+        # signal unresolved issues so the caller can run a fallback reinforcement
+        unresolved = pd.DataFrame({"powerflow_failed": [True]})
     edisgo.results.grid_expansion_costs = grid_expansion_costs(edisgo)
     logger.info(f"Backward-pull-out: {len(pulled_out)} measure(s) pulled out.")
     return pulled_out, unresolved
+
+
+def _trial_analyze(edisgo: EDisGo, timesteps_pfa, mode: str | None) -> bool:
+    """
+    Run a trial power flow analysis and return False if it did not converge.
+
+    A failed trial (non-convergence or singular matrix) means the pulled-out
+    measure is not admissible and has to be reverted by the caller.
+
+    """
+    try:
+        edisgo.analyze(mode=mode, timesteps=timesteps_pfa)
+        return True
+    except (ValueError, RuntimeError) as e:
+        logger.debug(f"Trial power flow failed (measure not admissible): {e}")
+        return False
 
 
 def _pull_out_issues(
@@ -1469,8 +1501,10 @@ def _try_pull_out_line(
     _apply_line_state(
         edisgo, line, target["type_info"], target["kind"], int(target["num_parallel"])
     )
-    edisgo.analyze(mode=mode, timesteps=timesteps_pfa)
-    has_issues, _ = _pull_out_issues(edisgo, mode, split_voltage_band)
+    if _trial_analyze(edisgo, timesteps_pfa, mode):
+        has_issues, _ = _pull_out_issues(edisgo, mode, split_voltage_band)
+    else:
+        has_issues = True
     if not has_issues:
         quantity = max(1, int(current["num_parallel"]) - int(target["num_parallel"]))
         _record_pull_out(
@@ -1512,8 +1546,10 @@ def _try_pull_out_transformer(
     )
     removed_row = df.loc[trafo].copy()
     df.drop(index=trafo, inplace=True)
-    edisgo.analyze(mode=mode, timesteps=timesteps_pfa)
-    has_issues, _ = _pull_out_issues(edisgo, mode, split_voltage_band)
+    if _trial_analyze(edisgo, timesteps_pfa, mode):
+        has_issues, _ = _pull_out_issues(edisgo, mode, split_voltage_band)
+    else:
+        has_issues = True
     if not has_issues:
         _record_pull_out(edisgo, station, row["iteration_step"], trafo, 1)
         return ("transformer", trafo, 1)
