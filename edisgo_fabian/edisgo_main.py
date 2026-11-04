@@ -1,17 +1,6 @@
-# This file is part of eDisGo (Electrical Distribution Grid Optimization),
-# a Python package for analyzing flexibility options in distribution grids.
-#
-# Copyright (c) Reiner Lemoine Institut gGmbH
-# Contributors are listed in the version control history:
-# https://github.com/openego/eDisGo/
-#
-# Documentation: https://edisgo.readthedocs.io/
-#
-# SPDX-License-Identifier: AGPL-3.0-or-later
 import logging
 import os
 import traceback
-
 
 import geopandas as gpd
 import pandas as pd
@@ -56,7 +45,7 @@ unique_type = set()
 #   start year
 # A combined "forward-backward" variant can be added here later.
 # -------------------
-APPROACH = "forward-fill-in"  # "forward-fill-in" | "backward-pull-out"
+APPROACH = "backward-pull-out"  # "forward-fill-in" | "backward-pull-out"
 
 # -------------------
 # setup logger
