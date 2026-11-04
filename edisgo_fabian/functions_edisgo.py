@@ -9,6 +9,9 @@
 #
 # SPDX-License-Identifier: AGPL-3.0-or-later
 import logging
+import os
+
+from copy import deepcopy
 
 import numpy as np
 import pandas as pd
@@ -19,7 +22,8 @@ from helpers import (
 )
 
 # from eDisGo_git.eDisGo.edisgo import edisgo
-from edisgo.flex_opt.reinforce_grid import enhanced_reinforce_grid
+from edisgo.edisgo import import_edisgo_from_files
+from edisgo.flex_opt.reinforce_grid import backward_pull_out, enhanced_reinforce_grid
 from edisgo.tools.logger import setup_logger
 
 
@@ -1079,6 +1083,103 @@ def generate_yearly_scenarios(
     year_row = yearly_df[yearly_df["year"] == year]  # all values for the year
     target_features = year_row.iloc[0].drop(labels="year")  # take first row
 
+    # ----- extract target features delta for this year -----
+    # ensure that the years are correctly sorted
+    yearly_df = yearly_df.sort_values("year").set_index("year")
+
+    # --- calculate delta ---
+    delta_df = yearly_df.diff()
+    delta_features = delta_df.loc[year]
+
+    if not year_row.empty:
+        logging.info(f"Year {year}: Target features for adaptation: {target_features}")
+        edisgo_year = _apply_yearly_adaptation(
+            edisgo_2035, edisgo_year, target_features, delta_features, year
+        )
+
+    # return form is a bit odd
+    return edisgo_year
+
+
+def generate_yearly_scenario_backward(
+    edisgo_2035, edisgo_year, yearly_features_dict: dict[str, pd.DataFrame], year: int
+):
+    """
+    Generate the EDisGo object for one year going backward from year + 1.
+
+    Uses the same linearly interpolated target features as
+    :func:`generate_yearly_scenarios`, but the delta is the change from
+    year + 1 to year (i.e. the negative of the forward delta). Components that
+    were added in later years are therefore removed again via the remove
+    branch of :func:`adapt_components_topology`.
+
+    Parameters
+    ----------
+    edisgo_2035 : EDisGo
+        Base EDisGo object with the end-year (2035) topology.
+    edisgo_year : EDisGo
+        EDisGo object representing year + 1 (e.g. the reinforced end-year
+        grid) from which the components of later years are removed.
+    yearly_features_dict : dict[str, pd.DataFrame]
+        Output from calculate_yearly_features() containing absolute MW values
+        for each year.
+    year : int
+        The year for which the scenario is generated.
+
+    Returns
+    -------
+    EDisGo
+        The adapted EDisGo object for the specified year.
+    """
+    yearly_df = list(yearly_features_dict.values())[0]  # convert dict to list
+    year_row = yearly_df[yearly_df["year"] == year]  # all values for the year
+    target_features = year_row.iloc[0].drop(labels="year")  # take first row
+
+    # ensure that the years are correctly sorted
+    yearly_df = yearly_df.sort_values("year").set_index("year")
+    # backward delta: change from year + 1 to year (negative forward delta)
+    delta_features = yearly_df.loc[year] - yearly_df.loc[year + 1]
+
+    if not year_row.empty:
+        logging.info(
+            f"Year {year} (backward): Target features for adaptation: {target_features}"
+        )
+        edisgo_year = _apply_yearly_adaptation(
+            edisgo_2035, edisgo_year, target_features, delta_features, year
+        )
+
+    return edisgo_year
+
+
+def _apply_yearly_adaptation(
+    edisgo_2035, edisgo_year, target_features, delta_features, year
+):
+    """
+    Apply the yearly component adaptation for one year.
+
+    Adds or removes generators, loads and storages so that the installed
+    capacities match the absolute target features, based on the delta to the
+    previous (forward) or next (backward) year.
+
+    Parameters
+    ----------
+    edisgo_2035 : EDisGo
+        Reference EDisGo object with the 2035 topology.
+    edisgo_year : EDisGo
+        EDisGo object of the current year to be adapted.
+    target_features : pd.Series
+        Absolute target capacities in MW for the year.
+    delta_features : pd.Series
+        Change in capacity compared to the neighbouring year in MW (negative
+        when going backward).
+    year : int
+        The year for which the adaptation is performed (for logging).
+
+    Returns
+    -------
+    EDisGo
+        The adapted EDisGo object.
+    """
     cols_gen_lv = [col for col in target_features.index if "gen" in col and "lv" in col]
     cols_gen_mv = [col for col in target_features.index if "gen" in col and "mv" in col]
     cols_load_lv = [
@@ -1100,14 +1201,6 @@ def generate_yearly_scenarios(
     target_features_load_mv = target_features[cols_load_mv].to_dict()
     target_features_stor_lv = target_features[cols_stor_lv].to_dict()
     target_features_stor_mv = target_features[cols_stor_mv].to_dict()
-
-    # ----- extract target features delta for this year -----
-    # ensure that the years are correctly sorted
-    yearly_df = yearly_df.sort_values("year").set_index("year")
-
-    # --- calculate delta ---
-    delta_df = yearly_df.diff()
-    delta_features = delta_df.loc[year]
 
     target_features_gen_del_lv = delta_features[cols_gen_lv].to_dict()
     target_features_load_del_lv = delta_features[cols_load_lv].to_dict()
@@ -1149,70 +1242,66 @@ def generate_yearly_scenarios(
         f"Year {year}: Found {len(extended_storages_rows)} extended storages to consider for adaptation."
     )
 
-    if not year_row.empty:
-        logging.info(f"Year {year}: Target features for adaptation: {target_features}")
-        edisgo_year = adapt_components_topology(
-            edisgo=edisgo_year,
-            edisgo_2035=edisgo_2035,
-            target_features=target_features_gen_del_lv,
-            target_features_abs=target_features_gen_lv,
-            year=year,
-            source_df=extended_generators_rows,
-            component="generator",
-            p_name="p_nom",
-        )
-        edisgo_year = adapt_components_topology(
-            edisgo=edisgo_year,
-            edisgo_2035=edisgo_2035,
-            target_features=target_features_load_del_lv,
-            target_features_abs=target_features_load_lv,
-            year=year,
-            source_df=extended_load_rows,
-            component="load",
-            p_name="p_set",
-        )
-        edisgo_year = adapt_components_topology(
-            edisgo=edisgo_year,
-            edisgo_2035=edisgo_2035,
-            target_features=target_features_stor_del_lv,
-            target_features_abs=target_features_stor_lv,
-            year=year,
-            source_df=extended_storages_rows,
-            component="storage",
-            p_name="p_nom",
-        )
-        edisgo_year = adapt_components_topology(
-            edisgo=edisgo_year,
-            edisgo_2035=edisgo_2035,
-            target_features=target_features_gen_del_mv,
-            target_features_abs=target_features_gen_mv,
-            year=year,
-            source_df=extended_generators_rows,
-            component="generator",
-            p_name="p_nom",
-        )
-        edisgo_year = adapt_components_topology(
-            edisgo=edisgo_year,
-            edisgo_2035=edisgo_2035,
-            target_features=target_features_load_del_mv,
-            target_features_abs=target_features_load_mv,
-            year=year,
-            source_df=extended_load_rows,
-            component="load",
-            p_name="p_set",
-        )
-        edisgo_year = adapt_components_topology(
-            edisgo=edisgo_year,
-            edisgo_2035=edisgo_2035,
-            target_features=target_features_stor_del_mv,
-            target_features_abs=target_features_stor_mv,
-            year=year,
-            source_df=extended_storages_rows,
-            component="storage",
-            p_name="p_nom",
-        )
-
-    # return form is a bit odd
+    edisgo_year = adapt_components_topology(
+        edisgo=edisgo_year,
+        edisgo_2035=edisgo_2035,
+        target_features=target_features_gen_del_lv,
+        target_features_abs=target_features_gen_lv,
+        year=year,
+        source_df=extended_generators_rows,
+        component="generator",
+        p_name="p_nom",
+    )
+    edisgo_year = adapt_components_topology(
+        edisgo=edisgo_year,
+        edisgo_2035=edisgo_2035,
+        target_features=target_features_load_del_lv,
+        target_features_abs=target_features_load_lv,
+        year=year,
+        source_df=extended_load_rows,
+        component="load",
+        p_name="p_set",
+    )
+    edisgo_year = adapt_components_topology(
+        edisgo=edisgo_year,
+        edisgo_2035=edisgo_2035,
+        target_features=target_features_stor_del_lv,
+        target_features_abs=target_features_stor_lv,
+        year=year,
+        source_df=extended_storages_rows,
+        component="storage",
+        p_name="p_nom",
+    )
+    edisgo_year = adapt_components_topology(
+        edisgo=edisgo_year,
+        edisgo_2035=edisgo_2035,
+        target_features=target_features_gen_del_mv,
+        target_features_abs=target_features_gen_mv,
+        year=year,
+        source_df=extended_generators_rows,
+        component="generator",
+        p_name="p_nom",
+    )
+    edisgo_year = adapt_components_topology(
+        edisgo=edisgo_year,
+        edisgo_2035=edisgo_2035,
+        target_features=target_features_load_del_mv,
+        target_features_abs=target_features_load_mv,
+        year=year,
+        source_df=extended_load_rows,
+        component="load",
+        p_name="p_set",
+    )
+    edisgo_year = adapt_components_topology(
+        edisgo=edisgo_year,
+        edisgo_2035=edisgo_2035,
+        target_features=target_features_stor_del_mv,
+        target_features_abs=target_features_stor_mv,
+        year=year,
+        source_df=extended_storages_rows,
+        component="storage",
+        p_name="p_nom",
+    )
     return edisgo_year
 
 
@@ -1355,6 +1444,209 @@ def compare_reinforcement(edisgo, methods=("standard", "enhanced")):
             "Comparison of reinforcement methods:\n" + df.to_string(index=False)
         )
     return df
+
+
+# =========================
+#   Yearly reinforcement (forward-fill-in / backward-pull-out)
+# =========================
+
+# save-path suffix per case within reinforce/<year>/
+_CASE_SUFFIX = {"wc": "", "lc": "_load_case", "fc": "_feed-in_case"}
+
+
+def _load_reinforced_grid(path):
+    """Load a saved reinforced grid including time series and results."""
+    return import_edisgo_from_files(path, import_timeseries=True, import_results=True)
+
+
+def _reinforce_year_cases(edisgo_year, year, mvgd, reinforce_base, method="standard"):
+    """
+    Reinforce the three cases (load, feed-in, worst case) for one year and save them.
+
+    Skips cases whose save directory already exists and loads them from disk
+    instead.
+
+    Parameters
+    ----------
+    edisgo_year : EDisGo
+        The EDisGo object of the year to reinforce.
+    year : int
+        The year to reinforce.
+    mvgd : int or str
+        The mv_district id (used in the save paths).
+    reinforce_base : str
+        Base path of the approach under which results are saved
+        (e.g. <path_save_topology>/reinforce/<approach>).
+    method : str
+        Reinforcement method passed to compute_reinforcement.
+
+    Returns
+    -------
+    dict
+        Dict with the reinforced EDisGo objects per case ("lc", "fc", "wc").
+    """
+    base = os.path.join(reinforce_base, str(year))
+    reinforced = {}
+    for case in ("lc", "fc", "wc"):
+        case_dir = os.path.join(base, str(mvgd) + _CASE_SUFFIX[case])
+        if not os.path.exists(case_dir):
+            logging.info(
+                f"Calculating grid reinforcement for year {year}, mv_district "
+                f"{mvgd} and case {case}"
+            )
+            edisgo_case = deepcopy(edisgo_year)
+            edisgo_case = setup_powerflow(edisgo_case, case)
+            edisgo_case = compute_reinforcement(edisgo_case, method=method)
+            save_grid(edisgo_case, case_dir)
+            logging.info(f"{case} case reinforced and saved for year {year}")
+        else:
+            edisgo_case = _load_reinforced_grid(case_dir)
+        reinforced[case] = edisgo_case
+    return reinforced
+
+
+def run_yearly_reinforcement(
+    edisgo_ist,
+    edisgo_scen,
+    yearly_features,
+    mvgd,
+    path_save_topology,
+    approach="forward-fill-in",
+    start_year=2021,
+    end_year=2035,
+    method="standard",
+):
+    """
+    Run the yearly grid development and reinforcement for one mv_district.
+
+    Parameters
+    ----------
+    edisgo_ist : EDisGo
+        EDisGo object of the start year (e.g. 2021).
+    edisgo_scen : EDisGo
+        EDisGo object of the end year scenario (e.g. 2035), unreinforced.
+    yearly_features : dict[str, pd.DataFrame]
+        Output from calculate_yearly_features() with the linearly interpolated
+        yearly target capacities.
+    mvgd : int or str
+        The mv_district id (used in the save paths and logging).
+    path_save_topology : str
+        Base path under which results are saved. Results of each approach are
+        stored in a separate subfolder <path_save_topology>/reinforce/<approach>/.
+    approach : str
+        "forward-fill-in": start from the start-year grid and add components
+        and reinforcement year by year up to the end year (previous behaviour).
+        "backward-pull-out": reinforce the end-year scenario first (optimal
+        expansion of the end year), then go backward year by year to the start
+        year, remove the components of later years and pull out grid expansion
+        measures that are not needed in the respective year
+        (:func:`edisgo.flex_opt.reinforce_grid.backward_pull_out`).
+        A combined "forward-backward" variant can be added here later.
+        Default: "forward-fill-in".
+    start_year : int
+        First year of the linearization. Default: 2021.
+    end_year : int
+        Last year of the linearization. Default: 2035.
+    method : str
+        Reinforcement method passed to compute_reinforcement. Default: "standard".
+
+    """
+    # separate subfolder per approach, so results of different approaches do
+    # not mix and the "already reinforced" checks stay per approach
+    reinforce_base = os.path.join(path_save_topology, "reinforce", approach)
+    if approach == "forward-fill-in":
+        edisgo_year = deepcopy(edisgo_ist)
+        for year in range(start_year + 1, end_year + 1):
+            target_dir = os.path.join(reinforce_base, str(year), str(mvgd))
+            logging.info(f"Generating scenario for year {year} and mv_district {mvgd}")
+            if os.path.exists(target_dir):
+                logging.info(
+                    f"year {year} for {mvgd} is already reinforced. next year."
+                )
+                edisgo_year = _load_reinforced_grid(target_dir)
+                continue
+            # ---- choose new nodes for the year ----
+            edisgo_year = generate_yearly_scenarios(
+                edisgo_2035=edisgo_scen,
+                edisgo_year=edisgo_year,
+                yearly_features_dict=yearly_features,
+                year=year,
+            )
+            save_grid(
+                edisgo_year,
+                os.path.join(path_save_topology, "topology_scen", str(year), str(mvgd)),
+            )
+            # ---- reinforce grid (load, feed-in and worst case) ----
+            edisgo_year = _reinforce_year_cases(
+                edisgo_year, year, mvgd, reinforce_base, method
+            )["wc"]
+            logging.info(
+                f"Created and saved grid scenario for year {year} and mv_district "
+                f"{mvgd}"
+            )
+    elif approach == "backward-pull-out":
+        # snapshot of the unreinforced end-year line state as revert target for
+        # the pull-out of line measures
+        line_state = edisgo_scen.topology.lines_df[
+            ["type_info", "kind", "num_parallel"]
+        ].copy()
+        # ---- optimal expansion of the end year ----
+        reinforced_end = _reinforce_year_cases(
+            deepcopy(edisgo_scen), end_year, mvgd, reinforce_base, method
+        )
+        # ---- go backward year by year down to the start year ----
+        for year in range(end_year - 1, start_year - 1, -1):
+            target_dir = os.path.join(reinforce_base, str(year), str(mvgd))
+            if os.path.exists(target_dir):
+                logging.info(
+                    f"year {year} for {mvgd} is already reinforced. next year."
+                )
+                continue
+            logging.info(
+                f"Generating backward scenario for year {year} and mv_district {mvgd}"
+            )
+            for case in ("lc", "fc", "wc"):
+                case_dir = os.path.join(
+                    reinforce_base,
+                    str(year),
+                    str(mvgd) + _CASE_SUFFIX[case],
+                )
+                if os.path.exists(case_dir):
+                    continue
+                # start from the reinforced end-year grid of this case and
+                # remove the components of later years
+                edisgo_case = deepcopy(reinforced_end[case])
+                edisgo_case = generate_yearly_scenario_backward(
+                    edisgo_2035=edisgo_scen,
+                    edisgo_year=edisgo_case,
+                    yearly_features_dict=yearly_features,
+                    year=year,
+                )
+                edisgo_case = setup_powerflow(edisgo_case, case)
+                # pull out grid expansion measures that are not needed in
+                # this year
+                pulled, unresolved = backward_pull_out(
+                    edisgo_case, mode=None, line_state=line_state
+                )
+                logging.info(
+                    f"Backward-pull-out year {year} case {case}: "
+                    f"{len(pulled)} measure(s) pulled out."
+                )
+                if not unresolved.empty:
+                    # issues remain after the pull-out (e.g. caused by the
+                    # removed components) -> reinforce forward as fallback
+                    logging.info(
+                        f"Year {year} case {case}: issues remain after "
+                        "pull-out, reinforcing."
+                    )
+                    edisgo_case = compute_reinforcement(edisgo_case, method=method)
+                save_grid(edisgo_case, case_dir)
+                logging.info(f"{case} case for year {year} pulled out and saved")
+    else:
+        raise ValueError(
+            f"Unknown approach '{approach}'. "
+            "Allowed approaches are 'forward-fill-in' and 'backward-pull-out'."
+        )
 
 
 def log_voltage_issues(edisgo, mode=None):

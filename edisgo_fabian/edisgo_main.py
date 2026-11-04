@@ -2,35 +2,24 @@ import logging
 import os
 import traceback
 
-from copy import deepcopy
-
 import geopandas as gpd
-import matplotlib.pyplot as plt
-import networkx as nx
 import pandas as pd
 
 from functions_edisgo import (
     analyse_topology,
     append_values,
     calculate_yearly_features,
-    compare_reinforcement,
-    compute_reinforcement,
     delete_hp,
-    generate_yearly_scenarios,
     import_flexibilites,
     logger,
+    run_yearly_reinforcement,
     save_grid,
-    setup_powerflow,
 )
 from helpers import get_mv_districts, init_logging
-from shapely import wkt
 
 from edisgo import EDisGo
-from edisgo.io.db import engine as Engine
-from edisgo.io.db import session_scope_egon_data, sql_grid_geom
 
 # from edisgo.io.timeseries import set_time_series_active_power_predefined
-from edisgo.tools.config import Config
 
 # -------------------
 # Define variables and paths
@@ -46,6 +35,17 @@ path_erg = os.path.join(eDisGo_dir, path_grids, file_erg)
 
 results = []
 unique_type = set()
+
+# -------------------
+# Approach for the yearly grid reinforcement:
+# - "forward-fill-in": year-by-year forward reinforcement starting from the
+#   start year (previous behaviour)
+# - "backward-pull-out": optimal grid expansion of the end year first, then
+#   year-by-year backward pull-out of grid expansion measures down to the
+#   start year
+# A combined "forward-backward" variant can be added here later.
+# -------------------
+APPROACH = "backward-pull-out"  # "forward-fill-in" | "backward-pull-out"
 
 # -------------------
 # setup logger
@@ -169,116 +169,17 @@ for mvgd in [31015]:
 
     # ---- adapt nodes and reinforce grid ----
     try:
-        # Create copy of 2021 topology
-        edisgo_year = deepcopy(edisgo_ist)
-        for year in range(2022, 2036):
-            logging.info(f"Generating scenario for year {year} and mv_district {mvgd}")
-            if os.path.exists(
-                os.path.join(path_save_topology, "reinforce", str(year), str(mvgd))
-            ):
-                logging.info(
-                    f"year {year} for {mvgd} is already reinforced. next year."
-                )
-                edisgo_year = EDisGo(
-                    ding0_grid=os.path.join(
-                        path_save_topology,
-                        "reinforce",
-                        str(year),
-                        str(mvgd),
-                        "topology",
-                    ),
-                    legacy_ding0_grids=False,
-                )
-                continue
-            # elif os.path.exists(os.path.join(path_save_topology,'topology_scen',str(year),str(mvgd))):  # noqa: E501
-            # edisgo_year = EDisGo(ding0_grid= os.path.join(path_save_topology,'topology_scen',str(year),str(mvgd),'topology'), legacy_ding0_grids=False)  # noqa: E501
-            else:
-                # ---- choose new nodes for the year ----
-                edisgo_year = generate_yearly_scenarios(
-                    edisgo_2035=edisgo_scen,
-                    edisgo_year=edisgo_year,
-                    yearly_features_dict=yearly_features,
-                    year=year,
-                )
-
-                save_grid(
-                    edisgo_year,
-                    os.path.join(
-                        path_save_topology, "topology_scen", str(year), str(mvgd)
-                    ),
-                )
-            # ---- reinforce grid ----
-            logging.info(
-                f"Calculating grid reinforcement for year {year} and mv_district {mvgd}"
-            )
-
-            if not os.path.exists(
-                os.path.join(
-                    path_save_topology, "reinforce", str(year), str(mvgd) + "_load_case"
-                )
-            ):
-                edisgo_load = deepcopy(edisgo_year)
-
-                # Setup powerflow for load case (Schritt 5 & 6)
-                edisgo_load = setup_powerflow(edisgo_load, "lc")
-
-                # optimize flexibility for load case (Schritt 7)
-                # edisgo_load.pm_optimize()
-
-                # Compute reinforcement for load case (Schritt 8 & 9)
-                edisgo_load = compute_reinforcement(edisgo_load, method="standard")
-                # df_compare_load = compare_reinforcement(edisgo_load)
-
-                save_grid(
-                    edisgo_load,
-                    os.path.join(
-                        path_save_topology,
-                        "reinforce",
-                        str(year),
-                        str(mvgd) + "_load_case",
-                    ),
-                )
-                logging.info("Load case reinforced and saved")
-
-            if not os.path.exists(
-                os.path.join(
-                    path_save_topology,
-                    "reinforce",
-                    str(year),
-                    str(mvgd) + "_feed-in_case",
-                )
-            ):
-                edisgo_feed = deepcopy(edisgo_year)
-                edisgo_feed = setup_powerflow(edisgo_feed, "fc")
-                edisgo_feed = compute_reinforcement(edisgo_feed, method="standard")
-                # df_compare_feed = compare_reinforcement(edisgo_feed)
-                save_grid(
-                    edisgo_feed,
-                    os.path.join(
-                        path_save_topology,
-                        "reinforce",
-                        str(year),
-                        str(mvgd) + "_feed-in_case",
-                    ),
-                )
-                logging.info("Feed-in case reinforced and saved")
-
-            if not os.path.exists(
-                os.path.join(path_save_topology, "reinforce", str(year), str(mvgd))
-            ):
-                edisgo_year = deepcopy(edisgo_year)
-                edisgo_year = setup_powerflow(edisgo_year, "wc")
-                edisgo_year = compute_reinforcement(edisgo_year, method="standard")
-                # df_compare_year = compare_reinforcement(edisgo_year)
-                save_grid(
-                    edisgo_year,
-                    os.path.join(path_save_topology, "reinforce", str(year), str(mvgd)),
-                )
-                logging.info("Worst case reinforced and saved")
-
-            logging.info(
-                f"Created and saved grid scenario for year {year} and mv_district {mvgd}"  # noqa: E501
-            )
+        run_yearly_reinforcement(
+            edisgo_ist=edisgo_ist,
+            edisgo_scen=edisgo_scen,
+            yearly_features=yearly_features,
+            mvgd=mvgd,
+            path_save_topology=path_save_topology,
+            approach=APPROACH,
+            start_year=2021,
+            end_year=2035,
+            method="standard",
+        )
 
     except Exception as e:
         logging.error(
