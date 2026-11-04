@@ -237,6 +237,7 @@ def analyse_topology(edisgo):
         list_lv, lv_grid_gen
     ).copy()  # generator object has no access via generators_df. Possible via get_lv_grid('name').
     # lv_grid_gen = lv_grid_gen[
+
     #     lv_grid_gen["type"] != "solar"
     # ]  # remove solar from lv, as it is split into pv_rooftop and pv_open_space
     lv_grid_load = lv_loads(list_lv, lv_grid_load).copy()
@@ -1262,7 +1263,13 @@ def compute_reinforcement(edisgo, method="enhanced"):
     elif method == "standard":
         for mode in ["lv", "mvlv", "mv"]:
             try:
-                edisgo.reinforce(mode=mode, catch_convergence_problems=True)
+                edisgo.reinforce(
+                    mode=mode,
+                    catch_convergence_problems=True,
+                    reduced_analysis=False,
+                    split_voltage_band=True,
+                    n_minus_one=False,
+                )
             except ValueError as e:
                 if "Maximum allowed voltage deviation" not in str(e):
                     raise
