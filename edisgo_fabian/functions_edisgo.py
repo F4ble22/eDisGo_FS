@@ -1505,6 +1505,102 @@ def _reinforce_year_cases(edisgo_year, year, mvgd, reinforce_base, method="stand
     return reinforced
 
 
+def _run_backward_pull_out(
+    edisgo_scen,
+    yearly_features,
+    mvgd,
+    reinforce_base,
+    start_year,
+    end_year,
+    method,
+    reinforced_end,
+):
+    """
+    Go backward year by year from the end year and pull out expansion measures.
+
+    For each year and each case (load, feed-in, worst case) the components of
+    later years are removed from the reinforced end-year grid of the
+    respective case and
+    :func:`edisgo.flex_opt.reinforce_grid.backward_pull_out` pulls out grid
+    expansion measures that are not needed in that year. If issues remain
+    after the pull-out, the case is reinforced forward as fallback.
+
+    Parameters
+    ----------
+    edisgo_scen : EDisGo
+        EDisGo object of the end-year scenario, unreinforced (component
+        reference and revert target for line measures).
+    yearly_features : dict[str, pd.DataFrame]
+        Output from calculate_yearly_features() with the linearly
+        interpolated yearly target capacities.
+    mvgd : int or str
+        The mv_district id (used in the save paths and logging).
+    reinforce_base : str
+        Base path of the approach under which results are saved
+        (e.g. <path_save_topology>/reinforce/<approach>).
+    start_year : int
+        First year of the linearization.
+    end_year : int
+        Last year of the linearization.
+    method : str
+        Reinforcement method passed to compute_reinforcement.
+    reinforced_end : dict
+        Reinforced end-year EDisGo objects per case ("lc", "fc", "wc") used
+        as starting point of the backward pass.
+    """
+    # snapshot of the unreinforced end-year line state as revert target for
+    # the pull-out of line measures
+    line_state = edisgo_scen.topology.lines_df[
+        ["type_info", "kind", "num_parallel"]
+    ].copy()
+    # ---- go backward year by year down to the start year ----
+    for year in range(end_year - 1, start_year - 1, -1):
+        target_dir = os.path.join(reinforce_base, str(year), str(mvgd))
+        if os.path.exists(target_dir):
+            logging.info(f"year {year} for {mvgd} is already reinforced. next year.")
+            continue
+        logging.info(
+            f"Generating backward scenario for year {year} and mv_district {mvgd}"
+        )
+        for case in ("lc", "fc", "wc"):
+            case_dir = os.path.join(
+                reinforce_base,
+                str(year),
+                str(mvgd) + _CASE_SUFFIX[case],
+            )
+            if os.path.exists(case_dir):
+                continue
+            # start from the reinforced end-year grid of this case and
+            # remove the components of later years
+            edisgo_case = deepcopy(reinforced_end[case])
+            edisgo_case = generate_yearly_scenario_backward(
+                edisgo_2035=edisgo_scen,
+                edisgo_year=edisgo_case,
+                yearly_features_dict=yearly_features,
+                year=year,
+            )
+            edisgo_case = setup_powerflow(edisgo_case, case)
+            # pull out grid expansion measures that are not needed in
+            # this year
+            pulled, unresolved = backward_pull_out(
+                edisgo_case, mode=None, line_state=line_state
+            )
+            logging.info(
+                f"Backward-pull-out year {year} case {case}: "
+                f"{len(pulled)} measure(s) pulled out."
+            )
+            if not unresolved.empty:
+                # issues remain after the pull-out (e.g. caused by the
+                # removed components) -> reinforce forward as fallback
+                logging.info(
+                    f"Year {year} case {case}: issues remain after "
+                    "pull-out, reinforcing."
+                )
+                edisgo_case = compute_reinforcement(edisgo_case, method=method)
+            save_grid(edisgo_case, case_dir)
+            logging.info(f"{case} case for year {year} pulled out and saved")
+
+
 def run_yearly_reinforcement(
     edisgo_ist,
     edisgo_scen,
@@ -1541,7 +1637,10 @@ def run_yearly_reinforcement(
         year, remove the components of later years and pull out grid expansion
         measures that are not needed in the respective year
         (:func:`edisgo.flex_opt.reinforce_grid.backward_pull_out`).
-        A combined "forward-backward" variant can be added here later.
+        "forward-backward": run a complete "forward-fill-in" pass first, then
+        the "backward-pull-out" pass seeded with the reinforced end-year grids
+        of the forward run, so the raw end-year scenario does not have to be
+        reinforced in one step.
         Default: "forward-fill-in".
     start_year : int
         First year of the linearization. Default: 2021.
@@ -1584,68 +1683,52 @@ def run_yearly_reinforcement(
                 f"Created and saved grid scenario for year {year} and mv_district "
                 f"{mvgd}"
             )
-    elif approach == "backward-pull-out":
-        # snapshot of the unreinforced end-year line state as revert target for
-        # the pull-out of line measures
-        line_state = edisgo_scen.topology.lines_df[
-            ["type_info", "kind", "num_parallel"]
-        ].copy()
-        # ---- optimal expansion of the end year ----
-        reinforced_end = _reinforce_year_cases(
-            deepcopy(edisgo_scen), end_year, mvgd, reinforce_base, method
-        )
-        # ---- go backward year by year down to the start year ----
-        for year in range(end_year - 1, start_year - 1, -1):
-            target_dir = os.path.join(reinforce_base, str(year), str(mvgd))
-            if os.path.exists(target_dir):
-                logging.info(
-                    f"year {year} for {mvgd} is already reinforced. next year."
-                )
-                continue
-            logging.info(
-                f"Generating backward scenario for year {year} and mv_district {mvgd}"
+    elif approach in ("backward-pull-out", "forward-backward"):
+        if approach == "backward-pull-out":
+            # ---- optimal expansion of the end year ----
+            reinforced_end = _reinforce_year_cases(
+                deepcopy(edisgo_scen), end_year, mvgd, reinforce_base, method
             )
+        else:
+            # ---- complete forward-fill-in run first ----
+            run_yearly_reinforcement(
+                edisgo_ist=edisgo_ist,
+                edisgo_scen=edisgo_scen,
+                yearly_features=yearly_features,
+                mvgd=mvgd,
+                path_save_topology=path_save_topology,
+                approach="forward-fill-in",
+                start_year=start_year,
+                end_year=end_year,
+                method=method,
+            )
+            # seed the pull-out with the reinforced end-year grids of the
+            # forward run, so the raw end-year scenario does not have to be
+            # reinforced in one step
+            forward_base = os.path.join(
+                path_save_topology, "reinforce", "forward-fill-in"
+            )
+            reinforced_end = {}
             for case in ("lc", "fc", "wc"):
                 case_dir = os.path.join(
-                    reinforce_base,
-                    str(year),
-                    str(mvgd) + _CASE_SUFFIX[case],
+                    forward_base, str(end_year), str(mvgd) + _CASE_SUFFIX[case]
                 )
-                if os.path.exists(case_dir):
-                    continue
-                # start from the reinforced end-year grid of this case and
-                # remove the components of later years
-                edisgo_case = deepcopy(reinforced_end[case])
-                edisgo_case = generate_yearly_scenario_backward(
-                    edisgo_2035=edisgo_scen,
-                    edisgo_year=edisgo_case,
-                    yearly_features_dict=yearly_features,
-                    year=year,
-                )
-                edisgo_case = setup_powerflow(edisgo_case, case)
-                # pull out grid expansion measures that are not needed in
-                # this year
-                pulled, unresolved = backward_pull_out(
-                    edisgo_case, mode=None, line_state=line_state
-                )
-                logging.info(
-                    f"Backward-pull-out year {year} case {case}: "
-                    f"{len(pulled)} measure(s) pulled out."
-                )
-                if not unresolved.empty:
-                    # issues remain after the pull-out (e.g. caused by the
-                    # removed components) -> reinforce forward as fallback
-                    logging.info(
-                        f"Year {year} case {case}: issues remain after "
-                        "pull-out, reinforcing."
-                    )
-                    edisgo_case = compute_reinforcement(edisgo_case, method=method)
-                save_grid(edisgo_case, case_dir)
-                logging.info(f"{case} case for year {year} pulled out and saved")
+                reinforced_end[case] = _load_reinforced_grid(case_dir)
+        _run_backward_pull_out(
+            edisgo_scen=edisgo_scen,
+            yearly_features=yearly_features,
+            mvgd=mvgd,
+            reinforce_base=reinforce_base,
+            start_year=start_year,
+            end_year=end_year,
+            method=method,
+            reinforced_end=reinforced_end,
+        )
     else:
         raise ValueError(
             f"Unknown approach '{approach}'. "
-            "Allowed approaches are 'forward-fill-in' and 'backward-pull-out'."
+            "Allowed approaches are 'forward-fill-in', 'backward-pull-out' "
+            "and 'forward-backward'."
         )
 
 
