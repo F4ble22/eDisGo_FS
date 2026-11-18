@@ -879,7 +879,7 @@ def adapt_components_topology(
             continue
         type_name = feature.split(".")[-1]  # get type from feature name
         # add components
-        if (target_value > 0) and (current_capacity < target_abs):
+        if current_capacity < target_abs - tolerance:
             logging.info(
                 f"Adding {component}s for feature {feature} with target value {target_value} for year {year}"
             )
@@ -944,7 +944,7 @@ def adapt_components_topology(
                 )
 
         # remove components
-        elif (target_value < 0) and (current_capacity > target_abs):
+        elif current_capacity > target_abs + tolerance:
             logging.info(
                 f"Deleting {component}s for feature {feature} with target value {target_value} for year {year}"
             )
