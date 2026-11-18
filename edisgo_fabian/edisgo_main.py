@@ -47,19 +47,19 @@ results = []
 unique_type = set()
 
 # -------------------
-# Approach for the yearly grid reinforcement:
+# Approach for the yearly grid reinforcement (results are stored per approach
+# under reinforce/<approach>/, so both approaches can be compared):
 # - "forward-fill-in": year-by-year forward reinforcement starting from the
 #   start year (previous behaviour)
-# - "backward-pull-out": optimal grid expansion of the end year first, then
-#   year-by-year backward pull-out of grid expansion measures down to the
-#   start year
-# - "forward-backward": complete forward-fill-in run first, then
-#   backward-pull-out seeded with the reinforced end-year grids of the
-#   forward run, so the raw end-year scenario is never reinforced in one
-#   step (workaround for the singular-matrix convergence failure)
+# - "backward-pull-out": a complete forward-fill-in run first provides the
+#   optimal reinforced end year (2035) as seed - the end year itself is not
+#   reinforced again; then a mirrored forward pass goes backward year by
+#   year (each year uses the grid of year + 1 as reference), removes the
+#   components of later years and pulls out grid expansion measures that are
+#   not needed, as long as the grid still works
 # -------------------
 APPROACH = "backward-pull-out"
-# allowed: "forward-fill-in" | "backward-pull-out" | "forward-backward"
+# allowed: "forward-fill-in" | "backward-pull-out"
 
 # -------------------
 # setup logger

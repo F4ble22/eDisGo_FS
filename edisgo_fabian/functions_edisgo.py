@@ -1518,12 +1518,17 @@ def _run_backward_pull_out(
     """
     Go backward year by year from the end year and pull out expansion measures.
 
-    For each year and each case (load, feed-in, worst case) the components of
-    later years are removed from the reinforced end-year grid of the
-    respective case and
+    Mirrored variant of the forward pass: the chain starts from the
+    reinforced end-year grid per case and each earlier year is derived from
+    the grid of the previous (later) year of the same case - not again from
+    the end year. For each year and each case (load, feed-in, worst case) the
+    components of later years are removed and
     :func:`edisgo.flex_opt.reinforce_grid.backward_pull_out` pulls out grid
-    expansion measures that are not needed in that year. If issues remain
-    after the pull-out, the case is reinforced forward as fallback.
+    expansion measures that are not needed in that year. A revert is kept
+    only if the grid still works (trial power flow converges without
+    overloading or voltage issues), so each year is as cost-efficient as
+    possible. If issues remain after the pull-out, the case is reinforced
+    forward as fallback.
 
     Parameters
     ----------
@@ -1546,19 +1551,18 @@ def _run_backward_pull_out(
         Reinforcement method passed to compute_reinforcement.
     reinforced_end : dict
         Reinforced end-year EDisGo objects per case ("lc", "fc", "wc") used
-        as starting point of the backward pass.
+        as seed of the backward chain (year `end_year`).
     """
     # snapshot of the unreinforced end-year line state as revert target for
     # the pull-out of line measures
     line_state = edisgo_scen.topology.lines_df[
         ["type_info", "kind", "num_parallel"]
     ].copy()
+    # backward chain per case: starts at the reinforced end-year grid, each
+    # year is derived from the grid of year + 1 (mirrored forward pass)
+    current = {case: deepcopy(reinforced_end[case]) for case in ("lc", "fc", "wc")}
     # ---- go backward year by year down to the start year ----
     for year in range(end_year - 1, start_year - 1, -1):
-        target_dir = os.path.join(reinforce_base, str(year), str(mvgd))
-        if os.path.exists(target_dir):
-            logging.info(f"year {year} for {mvgd} is already reinforced. next year.")
-            continue
         logging.info(
             f"Generating backward scenario for year {year} and mv_district {mvgd}"
         )
@@ -1569,10 +1573,16 @@ def _run_backward_pull_out(
                 str(mvgd) + _CASE_SUFFIX[case],
             )
             if os.path.exists(case_dir):
+                # resume: load the saved grid as new base of the chain
+                logging.info(
+                    f"year {year} case {case} for {mvgd} already exists. "
+                    "loading it as chain base."
+                )
+                current[case] = _load_reinforced_grid(case_dir)
                 continue
-            # start from the reinforced end-year grid of this case and
-            # remove the components of later years
-            edisgo_case = deepcopy(reinforced_end[case])
+            # start from the grid of the previous (later) year of this case
+            # and remove the components added in later years
+            edisgo_case = deepcopy(current[case])
             edisgo_case = generate_yearly_scenario_backward(
                 edisgo_2035=edisgo_scen,
                 edisgo_year=edisgo_case,
@@ -1598,6 +1608,8 @@ def _run_backward_pull_out(
                 )
                 edisgo_case = compute_reinforcement(edisgo_case, method=method)
             save_grid(edisgo_case, case_dir)
+            # chain: the next (earlier) year starts from this grid
+            current[case] = edisgo_case
             logging.info(f"{case} case for year {year} pulled out and saved")
 
 
@@ -1632,15 +1644,15 @@ def run_yearly_reinforcement(
     approach : str
         "forward-fill-in": start from the start-year grid and add components
         and reinforcement year by year up to the end year (previous behaviour).
-        "backward-pull-out": reinforce the end-year scenario first (optimal
-        expansion of the end year), then go backward year by year to the start
-        year, remove the components of later years and pull out grid expansion
-        measures that are not needed in the respective year
-        (:func:`edisgo.flex_opt.reinforce_grid.backward_pull_out`).
-        "forward-backward": run a complete "forward-fill-in" pass first, then
-        the "backward-pull-out" pass seeded with the reinforced end-year grids
-        of the forward run, so the raw end-year scenario does not have to be
-        reinforced in one step.
+        "backward-pull-out": run a complete "forward-fill-in" pass first to
+        obtain the optimal reinforced end year as seed (the end year itself is
+        not reinforced again), then go backward year by year to the start year
+        as a mirrored forward pass: each year is derived from the grid of
+        year + 1, the components of later years are removed and grid
+        expansion measures that are not needed in the respective year are
+        pulled out
+        (:func:`edisgo.flex_opt.reinforce_grid.backward_pull_out`), keeping
+        the grid functional and as cost-efficient as possible.
         Default: "forward-fill-in".
     start_year : int
         First year of the linearization. Default: 2021.
@@ -1719,8 +1731,7 @@ def run_yearly_reinforcement(
     else:
         raise ValueError(
             f"Unknown approach '{approach}'. "
-            "Allowed approaches are 'forward-fill-in', 'backward-pull-out' "
-            "and 'forward-backward'."
+            "Allowed approaches are 'forward-fill-in' and 'backward-pull-out'."
         )
 
 
