@@ -1683,37 +1683,29 @@ def run_yearly_reinforcement(
                 f"Created and saved grid scenario for year {year} and mv_district "
                 f"{mvgd}"
             )
-    elif approach in ("backward-pull-out", "forward-backward"):
-        if approach == "backward-pull-out":
-            # ---- optimal expansion of the end year ----
-            reinforced_end = _reinforce_year_cases(
-                deepcopy(edisgo_scen), end_year, mvgd, reinforce_base, method
+    elif approach in ("backward-pull-out"):
+        # ---- complete forward-fill-in run first ----
+        run_yearly_reinforcement(
+            edisgo_ist=edisgo_ist,
+            edisgo_scen=edisgo_scen,
+            yearly_features=yearly_features,
+            mvgd=mvgd,
+            path_save_topology=path_save_topology,
+            approach="forward-fill-in",
+            start_year=start_year,
+            end_year=end_year,
+            method=method,
+        )
+        # seed the pull-out with the reinforced end-year grids of the
+        # forward run, so the raw end-year scenario does not have to be
+        # reinforced in one step
+        forward_base = os.path.join(path_save_topology, "reinforce", "forward-fill-in")
+        reinforced_end = {}
+        for case in ("lc", "fc", "wc"):
+            case_dir = os.path.join(
+                forward_base, str(end_year), str(mvgd) + _CASE_SUFFIX[case]
             )
-        else:
-            # ---- complete forward-fill-in run first ----
-            run_yearly_reinforcement(
-                edisgo_ist=edisgo_ist,
-                edisgo_scen=edisgo_scen,
-                yearly_features=yearly_features,
-                mvgd=mvgd,
-                path_save_topology=path_save_topology,
-                approach="forward-fill-in",
-                start_year=start_year,
-                end_year=end_year,
-                method=method,
-            )
-            # seed the pull-out with the reinforced end-year grids of the
-            # forward run, so the raw end-year scenario does not have to be
-            # reinforced in one step
-            forward_base = os.path.join(
-                path_save_topology, "reinforce", "forward-fill-in"
-            )
-            reinforced_end = {}
-            for case in ("lc", "fc", "wc"):
-                case_dir = os.path.join(
-                    forward_base, str(end_year), str(mvgd) + _CASE_SUFFIX[case]
-                )
-                reinforced_end[case] = _load_reinforced_grid(case_dir)
+            reinforced_end[case] = _load_reinforced_grid(case_dir)
         _run_backward_pull_out(
             edisgo_scen=edisgo_scen,
             yearly_features=yearly_features,

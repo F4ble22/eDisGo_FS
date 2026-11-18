@@ -58,7 +58,7 @@ unique_type = set()
 #   forward run, so the raw end-year scenario is never reinforced in one
 #   step (workaround for the singular-matrix convergence failure)
 # -------------------
-APPROACH = "forward-backward"
+APPROACH = "backward-pull-out"
 # allowed: "forward-fill-in" | "backward-pull-out" | "forward-backward"
 
 # -------------------
